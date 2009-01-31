@@ -1,0 +1,25 @@
+---
+abstract: 'information on a type of monster'
+author:
+  - 'Stefan O''Rear, C<< <stefanor@cox.net> >>'
+build_requires:
+  Test::More: 0
+distribution_type: module
+generated_by: 'Module::Install version 0.77'
+license: perl
+meta-spec:
+  url: http://module-build.sourceforge.net/META-spec-v1.4.html
+  version: 1.4
+name: NetHack-Monster-Spoiler
+no_index:
+  directory:
+    - inc
+    - t
+requires:
+  Moose: 0
+  MooseX::ClassAttribute: 0
+  MooseX::Role::Matcher: 0
+  YAML: 0
+resources:
+  license: http://dev.perl.org/licenses/
+version: 0.01
