@@ -5,7 +5,7 @@ use YAML::Any qw(Load);
 use MooseX::ClassAttribute;
 use Moose::Util::TypeConstraints;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 =head1 NAME
 
@@ -89,10 +89,10 @@ one field in the NetHack monster structure, with three exceptions: all
 breathless monsters get amphibious for free, mimics do not cling to the ceiling,
 and dwarves do not eat rock.
 
-The return values of C<resist> and C<corpse> are hashrefs which map a truth
-value to each resistance the monster possesses or will grant on eating,
-respectively.  The return value of C<attacks> is an arrayref of hashrefs which
-describe each of the monster's attack(s) in terms of mode, type, and damage.
+The return values of C<resist> is a hashref which maps a truth value to each
+resistance the monster possesses The return value of C<attacks> is an arrayref
+of hashrefs which describe each of the monster's attack(s) in terms of mode,
+type, and damage.
 
 =over
 
@@ -123,8 +123,6 @@ describe each of the monster's attack(s) in terms of mode, type, and damage.
 =item clings_to_ceiling
 
 =item color
-
-=item corpse
 
 =item corpse_nutrition
 
@@ -339,32 +337,20 @@ same as NetHack's MZ_XXX defines.
 
 =cut
 
-sub derived ($$&) {
-    my ($name, $type, $code) = @_;
-
-    has($name, is => 'ro', init_arg => 'undef', isa => $type,
-            reader => { $name => $code });
-}
-
-sub pred ($&) {
-    my ($name, $code) = @_;
-    derived($name, 'Bool', sub { $code->(@_) ? 1 : 0; });
-}
-
 my %numeric_sizes = qw/tiny 0 small 1 medium 2 large 3 huge 4 gigantic 7/;
 
-derived numeric_size => 'Int', sub {
+sub numeric_size {
     my $thing = shift;
 
     $numeric_sizes{ ref $thing ? $thing->size : $thing };
-};
+}
 
 has [qw/sound name glyph color/] => (
     is      => 'ro',
     isa     => 'Str',
 );
 
-has [qw/resist corpse/] => (
+has [qw/resist _corpse/] => (
     is      => 'ro',
     isa     => 'HashRef',
 );
@@ -381,11 +367,11 @@ Plane^W^WApocalypse.
 
 =cut
 
-pred is_rider => sub {
+sub is_rider {
     my $self = shift;
 
     return $self->name =~ /Death|Pestilence|Famine/ ? 1 : 0;
-};
+}
 
 =head2 ignores_elbereth
 
@@ -394,29 +380,30 @@ monsters, and monsters with special AIs will ignore regardless.
 
 =cut
 
-pred ignores_elbereth => sub {
+sub ignores_elbereth {
     my $self = shift;
 
     return 1 if $self->glyph =~ /[A@]/;
     return 1 if $self->name eq 'minotaur';
     return 1 if $self->is_rider;
     return 0;
-};
+}
 
 =head2 has_attack MODE
 
-Return true if the monster has an attack of the specified mode.
+Return true if the monster has an attack of the specified mode or type.
 
 =cut
 
 sub has_attack {
     my ($self, $mode) = @_;
 
-    my @atk = grep { defined $mode ? $_->{mode} eq $mode : 1 }
-        @{$self->attacks};
+    my @atk = grep { defined $mode
+                   ? ($_->{mode} eq $mode || $_->{type} eq $mode)
+                   : 1 } @{$self->attacks};
 
     return @atk ? $atk[0] : undef;
-};
+}
 
 =head2 is_spellcaster
 
@@ -425,11 +412,11 @@ of magic used.
 
 =cut
 
-derived is_spellcaster => 'Maybe[Str]', sub {
+sub is_spellcaster {
     my $cast = shift->has_attack('magic');
 
     return $cast ? $cast->{type} : undef;
-};
+}
 
 my %elements = qw(petrification stone  stoning stone  electricity elec
     shock elec  disintegration disint);
@@ -448,7 +435,7 @@ sub resists {
     $element = $elements{$element} || $element;
 
     return $self->resist->{$element} || 0;
-};
+}
 
 =head2 can_float
 
@@ -456,11 +443,11 @@ Return true if the monster is capable of levitation, if not flight.
 
 =cut
 
-pred can_float => sub {
+sub can_float {
     my ($self) = @_;
 
     return $self->glyph eq 'e';
-};
+}
 
 =head2 is_noncorporeal
 
@@ -468,11 +455,11 @@ Return true if the monster is non-corporeal (a ghost or shade).
 
 =cut
 
-pred is_noncorporeal => sub {
+sub is_noncorporeal {
     my ($self) = @_;
 
     return $self->name =~ /shade|ghost/;
-};
+}
 
 =head2 is_whirly
 
@@ -481,11 +468,11 @@ disrupted with slowing.
 
 =cut
 
-pred is_whirly => sub {
+sub is_whirly {
     my ($self) = @_;
 
     return $self->glyph eq 'v' || $self->name eq 'air elemental';
-};
+}
 
 =head2 is_flaming
 
@@ -493,11 +480,11 @@ Return true if the monster is already on fire and cannot be ignited further.
 
 =cut
 
-pred is_flaming => sub {
+sub is_flaming {
     my ($self) = @_;
 
     return $self->name =~ /fire (?:vortex|elemental)|flaming sphere|salamander/;
-};
+}
 
 =head2 is_telepathic
 
@@ -505,11 +492,11 @@ Return true if the monster is intrinsically telepathic.
 
 =cut
 
-pred is_telepathic => sub {
+sub is_telepathic {
     my ($self) = @_;
 
     return $self->name =~ /floating eye|mind flayer/;
-};
+}
 
 =head2 uses_weapons
 
@@ -518,9 +505,9 @@ you want could_wield, not this.
 
 =cut
 
-pred uses_weapons => sub {
+sub uses_weapons {
     return defined shift->has_attack('weapon');
-};
+}
 
 =head2 is_unicorn
 
@@ -529,7 +516,7 @@ this monster is a unicorn.
 
 =cut
 
-derived is_unicorn => 'Maybe[Str]', sub {
+sub is_unicorn {
     my ($self) = @_;
 
     return undef if $self->glyph ne 'u';
@@ -539,7 +526,7 @@ derived is_unicorn => 'Maybe[Str]', sub {
     return 'Cha' if $self->color eq 'black';
 
     return undef;
-};
+}
 
 =head2 is_bat
 
@@ -547,9 +534,9 @@ Return true if the current monster is a true bat, not a bird.
 
 =cut
 
-pred is_bat => sub {
+sub is_bat {
     return shift->name =~ /^(vampire |giant |)bat$/;
-};
+}
 
 =head2 is_golem
 
@@ -557,9 +544,9 @@ Return true for golems.
 
 =cut
 
-pred is_golem => sub {
+sub is_golem {
     return shift->glyph eq "'";
-};
+}
 
 =head2 is_verysmall
 
@@ -567,9 +554,9 @@ Return true if this monster is very small (can pass between bars, etc).
 
 =cut
 
-pred is_verysmall => sub {
+sub is_verysmall {
     return shift->size eq 'tiny';
-};
+}
 
 =head2 is_bigmonst
 
@@ -577,9 +564,9 @@ Return true if this monster is quite large (cannot fit through crevice, etc).
 
 =cut
 
-pred is_bigmonst => sub {
+sub is_bigmonst {
     return shift->numeric_size >= numeric_size('large');
-};
+}
 
 =head2 could_wield
 
@@ -588,11 +575,11 @@ use weapons in the wild, see uses_weapons.
 
 =cut
 
-pred could_wield => sub {
+sub could_wield {
     my ($self) = @_;
 
     return !$self->lacks_hands && !$self->is_verysmall;
-};
+}
 
 =head2 could_wear_armor
 
@@ -602,11 +589,11 @@ not actually ever wear anything.
 
 =cut
 
-pred could_wear_armor => sub {
+sub could_wear_armor {
     my ($self) = @_;
 
     return !$self->would_break_armor && !$self->would_slip_armor;
-};
+}
 
 =head2 can_dualwield
 
@@ -614,12 +601,12 @@ Return true if the player can dualwield while polymorphed into this.
 
 =cut
 
-pred can_dualwield => sub {
+sub can_dualwield {
     my ($self) = @_;
 
     # Yes, this is the NetHack check!
     return @{$self->attacks} >= 2 && $self->attacks->[1]->{mode} eq 'weapon';
-};
+}
 
 =head2 is_normal_demon
 
@@ -627,11 +614,11 @@ Return true if this is a non-unique true demon.
 
 =cut
 
-pred is_normal_demon => sub {
+sub is_normal_demon {
     my ($self) = @_;
 
     return $self->is_demon && !$self->is_rank_lord && !$self->is_rank_prince;
-};
+}
 
 =head2 is_demon_prince
 
@@ -639,11 +626,11 @@ Return true if this is a demon prince.
 
 =cut
 
-pred is_demon_prince => sub {
+sub is_demon_prince {
     my ($self) = @_;
 
     return $self->is_demon && $self->is_rank_prince;
-};
+}
 
 =head2 is_demon_lord
 
@@ -651,11 +638,11 @@ Return true if this is a demon lord.
 
 =cut
 
-pred is_demon_lord => sub {
+sub is_demon_lord {
     my ($self) = @_;
 
     return $self->is_demon && $self->is_rank_lord;
-};
+}
 
 =head2 makes_webs
 
@@ -663,9 +650,9 @@ Returns true if this monster is capable of spinning webs.
 
 =cut
 
-pred makes_webs => sub {
+sub makes_webs {
     return shift->name =~ /^(cave|giant) spider$/;
-};
+}
 
 =head2 can_breathe
 
@@ -673,9 +660,9 @@ Returns true if this monster has a breath weapon.
 
 =cut
 
-pred can_breathe => sub {
+sub can_breathe {
     return defined shift->has_attack('breathe');
-};
+}
 
 # is_longworm omitted
 
@@ -685,12 +672,12 @@ Return true if this is a role monster (valkyrie, etc).
 
 =cut
 
-pred is_player_monster => sub {
+sub is_player_monster {
     my ($self) = @_;
 
     return $self->hitdice == 10 && $self->glyph eq '@' &&
         $self->color eq 'white' && $self->name ne 'elf';
-};
+}
 
 =head2 is_covetous
 
@@ -699,12 +686,12 @@ you, picking up invocation items; does B<not> imply a theft attack).
 
 =cut
 
-pred is_covetous => sub {
+sub is_covetous {
     my ($self) = @_;
 
     return $self->wants_amulet || $self->wants_book || $self->wants_bell ||
         $self->wants_candelabrum || $self->wants_quest_artifact;
-};
+}
 
 # reviver omitted: NHI
 
@@ -714,12 +701,12 @@ Return true if this monster is always surrounded by a 1-square lit region.
 
 =cut
 
-pred emits_light => sub {
+sub emits_light {
     my ($self) = @_;
 
     return $self->glyph eq 'y' || $self->name =~
         /^(?:(?:flam|shock)ing sphere|fire (?:vortex|elemental))$/;
-};
+}
 
 =head2 likes_lava
 
@@ -727,11 +714,11 @@ Return true if this monster suffers no penalties in lava.
 
 =cut
 
-pred likes_lava => sub {
+sub likes_lava {
     my ($self) = @_;
 
     return $self->name eq 'salamander' || $self->name eq 'fire elemental';
-};
+}
 
 =head2 naturally_invisible
 
@@ -739,11 +726,11 @@ Return true if this monster is automatically invisible.
 
 =cut
 
-pred naturally_invisible => sub {
+sub naturally_invisible {
     my ($self) = @_;
 
     return $self->name eq 'stalker' || $self->name eq 'black light';
-};
+}
 
 =head2 likes_fire
 
@@ -751,9 +738,9 @@ Return true if this monster is not penalized by fire.
 
 =cut
 
-pred likes_fire => sub {
+sub likes_fire {
     shift->is_flaming;
-};
+}
 
 =head2 touch_petrifies
 
@@ -761,9 +748,9 @@ Return true for monsters whose flesh is fatal on contact petrification.
 
 =cut
 
-pred touch_petrifies => sub {
+sub touch_petrifies {
     shift->name =~ /^c(?:o|hi)ckatrice$/;
-};
+}
 
 =head2 is_mind_flayer
 
@@ -771,9 +758,9 @@ Can this monster use mental blasts?
 
 =cut
 
-pred is_mind_flayer => sub {
+sub is_mind_flayer {
     shift->name =~ /mind flayer/;
-};
+}
 
 =head2 is_nonliving
 
@@ -781,12 +768,12 @@ Return true if this monster is not considered alive.
 
 =cut
 
-pred is_nonliving => sub {
+sub is_nonliving {
     my ($self) = @_;
 
     return $self->name eq 'manes' || $self->is_undead || $self->glyph eq 'v' ||
         $self->is_golem;
-};
+}
 
 # attacktype_fordmg omitted, dead code in NH
 
@@ -798,12 +785,12 @@ Return true if this monster intrinsically cannot be life drained.
 
 =cut
 
-pred resists_drain_life => sub {
+sub resists_drain_life {
     my ($self) = @_;
 
     return $self->is_lycanthrope || $self->is_undead || $self->is_demon ||
        $self->name eq 'Death';
-};
+}
 
 =head2 resists_magic
 
@@ -813,11 +800,11 @@ mr accessor, which is a percentage save against a much wider range of attacks.
 
 =cut
 
-pred resists_magic => sub {
+sub resists_magic {
     my ($self) = @_;
 
     return $self->name =~ /gray dragon|Yeenoghu|Oracle|Angel|Chromatic Dragon/;
-};
+}
 
 =head2 resists_blinding
 
@@ -825,11 +812,11 @@ Return true if this monster intrinsically cannot be blinded.
 
 =cut
 
-pred resists_blinding => sub {
+sub resists_blinding {
     my ($self) = @_;
 
     return $self->lacks_eyes || $self->name =~ /yellow light|Archon/;
-};
+}
 
 # can_blind omitted, depends too much on mon data
 
@@ -841,13 +828,13 @@ Return true if this monster takes d20 bonus damage from silver attacks.
 
 =cut
 
-pred is_vulnerable_to_silver => sub {
+sub is_vulnerable_to_silver {
     my ($self) = @_;
 
     return 0 if $self->name eq 'tengu';
     return $self->glyph =~ /[iV]/ || $self->is_lycanthrope || $self->is_demon
         || $self->name eq 'shade';
-};
+}
 
 =head2 ignores_bars
 
@@ -855,12 +842,12 @@ Return true if this monster can walk through, between, or around iron bars.
 
 =cut
 
-pred ignores_bars => sub {
+sub ignores_bars {
     my ($self) = @_;
 
     return $self->ignores_walls || $self->is_amorphous || $self->is_whirly ||
         $self->is_verysmall || ($self->serpentine_body && !$self->is_bigmonst);
-};
+}
 
 =head2 would_slip_armor
 
@@ -868,12 +855,12 @@ Return true if body armor would always fall off this monster.
 
 =cut
 
-pred would_slip_armor => sub {
+sub would_slip_armor {
     my ($self) = @_;
 
     return $self->is_whirly || $self->is_noncorporeal || $self->numeric_size <=
         numeric_size('small');
-};
+}
 
 =head2 would_break_armor
 
@@ -881,14 +868,14 @@ Return true if any armor worn by this monster would break.
 
 =cut
 
-pred would_break_armor => sub {
+sub would_break_armor {
     my ($self) = @_;
 
     return 0 if $self->would_slip_armor;
 
     return !$self->humanoid_body || $self->is_bigmonst
         || $self->name eq 'marilith' || $self->name eq 'winged gargoyle';
-};
+}
 
 =head2 can_stick
 
@@ -897,12 +884,12 @@ such attacks.
 
 =cut
 
-pred can_stick => sub {
+sub can_stick {
     my ($self) = @_;
 
     return scalar grep { $_->{mode} eq 'crush' || $_->{type} eq 'stick'
         || $_->{type} eq 'wrap' } @{ $self->attacks };
-};
+}
 
 =head2 has_horns
 
@@ -910,11 +897,186 @@ Return true if this monster has one or more horns preventing the use of helmets.
 
 =cut
 
-pred has_horns => sub {
+sub has_horns {
     shift->name =~ /horned devil|minotaur|Asmodeus|balrog|ki-rin|unicorn/;
-};
+}
 
-# vegan & vegetarian omitted: NHI domain
+=head2 vegan
+
+Return true if eating this monster or its corpse won't break vegan conduct.
+
+=cut
+
+sub vegan {
+    my $self = shift;
+    return 0 if $self->name eq 'stalker'
+             || $self->name eq 'leather golem'
+             || $self->name eq 'flesh golem';
+    return 1 if $self->glyph =~ /[bjFvyE'X]/;
+    return 0;
+}
+
+=head2 vegetarian
+
+Return true if eating this monster or its corpse won't break vegetarian conduct.
+
+=cut
+
+sub vegetarian {
+    my $self = shift;
+    return 1 if $self->vegan;
+    return 0 if $self->name eq 'black pudding';
+    return 1 if $self->glyph eq 'P';
+    return 0;
+}
+
+=head2 corpse
+
+Returns a hashref with all effects that eating a corpse will provide.
+
+=cut
+
+sub corpse {
+    my $self = shift;
+
+    my $corpse_type = $self->corpse_type;
+    my $name = $corpse_type->name;
+    my $glyph = $corpse_type->glyph;
+
+    my %corpse_data;
+
+    # initial effects (cprefx)
+    # XXX: should we mark these separately?
+    return { die => 1 }
+        if $corpse_type->is_rider;
+    $corpse_data{acidic} = 1
+        if $corpse_type->acidic_corpse;
+    $corpse_data{poisonous} = 1
+        if $corpse_type->poisonous_corpse;
+    $corpse_data{petrify} = 1
+        if $corpse_type->touch_petrifies || $name eq 'Medusa';
+    $corpse_data{aggravate} = 1
+        if $name =~ /(?:dog|cat|kitten)$/;
+    $corpse_data{cure_stone} = 1
+        if ($name eq 'lizard') || $corpse_type->acidic_corpse;
+    $corpse_data{slime} = 1
+        if $name eq 'green slime';
+    $corpse_data{cannibal} = 'Hum'
+        if $corpse_type->is_human;
+    $corpse_data{cannibal} = 'Dwa'
+        if $corpse_type->is_dwarf;
+    $corpse_data{cannibal} = 'Elf'
+        if $corpse_type->is_elf;
+    $corpse_data{cannibal} = 'Gno'
+        if $corpse_type->is_gnome;
+
+    # final effects (cpostfx)
+    if ($name eq 'newt') {
+        $corpse_data{energy} = 1;
+    }
+    elsif ($name eq 'wraith') {
+        $corpse_data{gain_level} = 1;
+    }
+    elsif ($name =~ /^were/) {
+        $corpse_data{lycanthropy} = 1;
+    }
+    elsif ($name eq 'nurse') {
+        $corpse_data{heal} = 1;
+    }
+    elsif ($name eq 'stalker') {
+        $corpse_data{invisibility} = 1;
+        $corpse_data{see_invisible} = 1; # XXX ?
+        $corpse_data{stun} = 60;
+    }
+    elsif ($name eq 'yellow light') {
+        $corpse_data{stun} = 60;
+    }
+    elsif ($name eq 'giant bat') {
+        $corpse_data{stun} = 60;
+    }
+    elsif ($name eq 'bat') {
+        $corpse_data{stun} = 30;
+    }
+    elsif ($glyph eq 'm') {
+        $corpse_data{mimic} = $name =~ /giant/ ? 50
+                            : $name =~ /large/ ? 40
+                            :                    20;
+    }
+    elsif ($name eq 'quantum mechanic') {
+        $corpse_data{speed_toggle} = 1;
+    }
+    elsif ($name eq 'lizard') {
+        $corpse_data{less_confused} = 2;
+        $corpse_data{less_stunned} = 2;
+    }
+    elsif ($name eq 'chameleon' || $name eq 'doppelganger') {
+        $corpse_data{polymorph} = 1;
+    }
+    elsif ($corpse_type->is_mind_flayer) {
+        $corpse_data{intelligence} = 1;
+        $corpse_data{telepathy} = 1;
+    }
+    else {
+        if ($corpse_type->has_attack('stun')
+         || $corpse_type->has_attack('hallucination')
+         || $name eq 'violet fungus') {
+            $corpse_data{hallucination} = 200;
+        }
+        if ($corpse_type->is_giant) {
+            $corpse_data{strength} = 1;
+        }
+
+        my %trans = (shock => 'elec', disintegration => 'disint');
+        for my $resist (qw/fire sleep cold disintegration shock poison/) {
+            my $trans_resist = $trans{$resist} || $resist;
+            $corpse_data{"${resist}_resistance"} = 1
+                if exists $corpse_type->_corpse->{$trans_resist};
+        }
+        $corpse_data{teleportitis} = 1
+            if $corpse_type->has_teleportitis;
+        $corpse_data{teleport_control} = 1
+            if $corpse_type->has_teleport_control;
+        $corpse_data{telepathy} = 1
+            if $corpse_type->is_telepathic;
+    }
+
+    return \%corpse_data;
+}
+
+=head2 corpse_type
+
+Returns the monster corresponding to the type of corpse that a monster will
+leave (i.e. vampires leave human corpses).
+
+=cut
+
+sub corpse_type {
+    my $self = shift;
+    my $type;
+    if ($self->glyph eq 'Z') {
+        ($type = $self->name) =~ s/ zombie//;
+    }
+    elsif ($self->glyph eq 'M') {
+        ($type = $self->name) =~ s/ mummy//;
+    }
+    elsif ($self->glyph eq 'V') {
+        $type = 'human';
+    }
+    return $self->lookup(name => $type) if $type;
+    return $self;
+}
+
+=head2 corpse_reanimates
+
+Return true if the corpse will reanimate after sitting on the floor for a
+while.
+
+=cut
+
+sub corpse_reanimates {
+    my $self = shift;
+    return $self->glyph eq 'T';
+}
 
 =head2 parse_description $name
 
@@ -1170,8 +1332,6 @@ sub parse_description {
     return \%r;
 }
 
-undef *pred; undef *derived;
-
 __PACKAGE__->meta->make_immutable;
 no Moose;
 
@@ -1204,6 +1364,7 @@ L<NetHack::Item>, L<MooseX::Role::Matcher>
 
 __DATA__
 ---
+_corpse: {}
 ac: 3
 alignment: 0
 always_hostile: 1
@@ -1212,7 +1373,6 @@ attacks:
     mode: bite
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 10
 glyph: a
 hitdice: 2
@@ -1231,6 +1391,8 @@ sound: silent
 speed: 18
 weight: 10
 ---
+_corpse:
+  poison: 1
 ac: -1
 alignment: 0
 always_hostile: 1
@@ -1240,8 +1402,6 @@ attacks:
     type: poison
 can_fly: 1
 color: yellow
-corpse:
-  poison: 1
 corpse_nutrition: 5
 glyph: a
 hitdice: 1
@@ -1261,6 +1421,8 @@ sound: buzz
 speed: 18
 weight: 1
 ---
+_corpse:
+  poison: 1
 ac: 3
 alignment: 0
 always_hostile: 1
@@ -1272,8 +1434,6 @@ attacks:
     mode: sting
     type: poison
 color: blue
-corpse:
-  poison: 1
 corpse_nutrition: 5
 glyph: a
 hitdice: 3
@@ -1294,6 +1454,8 @@ sound: silent
 speed: 18
 weight: 20
 ---
+_corpse:
+  fire: 1
 ac: 3
 alignment: 0
 always_hostile: 1
@@ -1305,8 +1467,6 @@ attacks:
     mode: bite
     type: fire
 color: red
-corpse:
-  fire: 1
 corpse_nutrition: 10
 glyph: a
 hitdice: 3
@@ -1327,6 +1487,8 @@ sound: silent
 speed: 18
 weight: 30
 ---
+_corpse:
+  poison: 1
 ac: 4
 alignment: 0
 always_hostile: 1
@@ -1335,8 +1497,6 @@ attacks:
     mode: bite
     type: physical
 color: black
-corpse:
-  poison: 1
 corpse_nutrition: 10
 glyph: a
 hitdice: 5
@@ -1355,6 +1515,8 @@ sound: silent
 speed: 6
 weight: 10
 ---
+_corpse:
+  poison: 1
 ac: -4
 alignment: 0
 always_hostile: 1
@@ -1364,8 +1526,6 @@ attacks:
     type: poison
 can_fly: 1
 color: magenta
-corpse:
-  poison: 1
 corpse_nutrition: 5
 glyph: a
 hitdice: 9
@@ -1386,6 +1546,8 @@ sound: buzz
 speed: 24
 weight: 1
 ---
+_corpse:
+  stone: 1
 ac: 8
 acidic_corpse: 1
 alignment: 0
@@ -1394,8 +1556,6 @@ attacks:
     mode: passive
     type: acid
 color: green
-corpse:
-  stone: 1
 corpse_nutrition: 10
 glyph: b
 hitdice: 1
@@ -1422,6 +1582,8 @@ sound: silent
 speed: 3
 weight: 30
 ---
+_corpse:
+  poison: 1
 ac: 8
 alignment: 0
 always_hostile: 1
@@ -1430,8 +1592,6 @@ attacks:
     mode: touch
     type: physical
 color: white
-corpse:
-  poison: 1
 corpse_nutrition: 100
 glyph: b
 hitdice: 5
@@ -1453,6 +1613,11 @@ sound: silent
 speed: 1
 weight: 200
 ---
+_corpse:
+  cold: 1
+  elec: 1
+  fire: 1
+  sleep: 1
 ac: 8
 acidic_corpse: 1
 alignment: 0
@@ -1465,11 +1630,6 @@ attacks:
     mode: passive
     type: paralyze
 color: cyan
-corpse:
-  cold: 1
-  elec: 1
-  fire: 1
-  sleep: 1
 corpse_nutrition: 150
 glyph: b
 hitdice: 6
@@ -1498,6 +1658,9 @@ sound: silent
 speed: 6
 weight: 600
 ---
+_corpse:
+  poison: 1
+  stone: 1
 ac: 8
 alignment: 0
 always_hostile: 1
@@ -1512,9 +1675,6 @@ attacks:
     mode: passive
     type: petrify
 color: brown
-corpse:
-  poison: 1
-  stone: 1
 corpse_nutrition: 10
 glyph: c
 hitdice: 4
@@ -1536,6 +1696,9 @@ sound: hiss
 speed: 4
 weight: 10
 ---
+_corpse:
+  poison: 1
+  stone: 1
 ac: 6
 alignment: 0
 always_hostile: 1
@@ -1550,9 +1713,6 @@ attacks:
     mode: passive
     type: petrify
 color: yellow
-corpse:
-  poison: 1
-  stone: 1
 corpse_nutrition: 30
 glyph: c
 hitdice: 5
@@ -1574,6 +1734,9 @@ sound: hiss
 speed: 6
 weight: 30
 ---
+_corpse:
+  fire: 1
+  poison: 1
 ac: 6
 alignment: 0
 always_hostile: 1
@@ -1582,9 +1745,6 @@ attacks:
     mode: gaze
     type: fire
 color: red
-corpse:
-  fire: 1
-  poison: 1
 corpse_nutrition: 30
 glyph: c
 hitdice: 6
@@ -1606,6 +1766,7 @@ sound: hiss
 speed: 6
 weight: 30
 ---
+_corpse: {}
 ac: 7
 alignment: 0
 always_hostile: 1
@@ -1614,7 +1775,6 @@ attacks:
     mode: bite
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 250
 glyph: d
 hitdice: 0
@@ -1633,6 +1793,7 @@ sound: bark
 speed: 12
 weight: 300
 ---
+_corpse: {}
 ac: 7
 alignment: 0
 always_hostile: 1
@@ -1641,7 +1802,6 @@ attacks:
     mode: bite
     type: physical
 color: red
-corpse: {}
 corpse_nutrition: 250
 glyph: d
 hitdice: 0
@@ -1659,6 +1819,7 @@ sound: bark
 speed: 15
 weight: 300
 ---
+_corpse: {}
 ac: 7
 alignment: 0
 always_hostile: 1
@@ -1667,7 +1828,6 @@ attacks:
     mode: bite
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 250
 glyph: d
 hitdice: 1
@@ -1686,6 +1846,7 @@ sound: bark
 speed: 12
 weight: 300
 ---
+_corpse: {}
 ac: 7
 alignment: -7
 always_hostile: 1
@@ -1694,7 +1855,6 @@ attacks:
     mode: bite
     type: lycanthropy
 color: brown
-corpse: {}
 corpse_nutrition: 250
 glyph: d
 hitdice: 2
@@ -1716,6 +1876,7 @@ sound: bark
 speed: 12
 weight: 300
 ---
+_corpse: {}
 ac: 6
 alignment: 0
 attacks:
@@ -1723,7 +1884,6 @@ attacks:
     mode: bite
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 150
 food_makes_peaceful: 1
 glyph: d
@@ -1742,6 +1902,7 @@ sound: bark
 speed: 18
 weight: 150
 ---
+_corpse: {}
 ac: 5
 alignment: 0
 attacks:
@@ -1749,7 +1910,6 @@ attacks:
     mode: bite
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 200
 food_makes_peaceful: 1
 glyph: d
@@ -1768,6 +1928,7 @@ sound: bark
 speed: 16
 weight: 400
 ---
+_corpse: {}
 ac: 4
 alignment: 0
 attacks:
@@ -1775,7 +1936,6 @@ attacks:
     mode: bite
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 250
 food_makes_peaceful: 1
 glyph: d
@@ -1795,6 +1955,7 @@ sound: bark
 speed: 15
 weight: 800
 ---
+_corpse: {}
 ac: 5
 alignment: 0
 always_hostile: 1
@@ -1803,7 +1964,6 @@ attacks:
     mode: bite
     type: physical
 color: yellow
-corpse: {}
 corpse_nutrition: 200
 glyph: d
 hitdice: 4
@@ -1821,6 +1981,7 @@ sound: bark
 speed: 16
 weight: 400
 ---
+_corpse: {}
 ac: 4
 alignment: 0
 always_hostile: 1
@@ -1829,7 +1990,6 @@ attacks:
     mode: bite
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 250
 glyph: d
 hitdice: 5
@@ -1848,6 +2008,7 @@ sound: bark
 speed: 12
 weight: 500
 ---
+_corpse: {}
 ac: 4
 alignment: -7
 always_hostile: 1
@@ -1856,7 +2017,6 @@ attacks:
     mode: bite
     type: lycanthropy
 color: brown
-corpse: {}
 corpse_nutrition: 250
 glyph: d
 hitdice: 5
@@ -1878,6 +2038,7 @@ sound: bark
 speed: 12
 weight: 500
 ---
+_corpse: {}
 ac: 4
 alignment: -5
 always_hostile: 1
@@ -1886,7 +2047,6 @@ attacks:
     mode: bite
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 350
 glyph: d
 hitdice: 7
@@ -1905,6 +2065,8 @@ sound: bark
 speed: 12
 weight: 850
 ---
+_corpse:
+  cold: 1
 absent_from_gehennom: 1
 ac: 4
 alignment: -5
@@ -1917,8 +2079,6 @@ attacks:
     mode: breathe
     type: cold
 color: cyan
-corpse:
-  cold: 1
 corpse_nutrition: 200
 glyph: d
 hitdice: 5
@@ -1937,6 +2097,8 @@ sound: bark
 speed: 12
 weight: 250
 ---
+_corpse:
+  cold: 1
 absent_from_gehennom: 1
 ac: 4
 alignment: 0
@@ -1949,8 +2111,6 @@ attacks:
     mode: breathe
     type: cold
 color: cyan
-corpse:
-  cold: 1
 corpse_nutrition: 300
 glyph: d
 hitdice: 7
@@ -1969,6 +2129,8 @@ sound: bark
 speed: 12
 weight: 700
 ---
+_corpse:
+  fire: 1
 ac: 4
 alignment: -5
 always_hostile: 1
@@ -1980,8 +2142,6 @@ attacks:
     mode: breathe
     type: fire
 color: red
-corpse:
-  fire: 1
 corpse_nutrition: 200
 gehennom_exclusive: 1
 glyph: d
@@ -2002,6 +2162,8 @@ sound: bark
 speed: 12
 weight: 200
 ---
+_corpse:
+  fire: 1
 ac: 2
 alignment: 0
 always_hostile: 1
@@ -2013,8 +2175,6 @@ attacks:
     mode: breathe
     type: fire
 color: red
-corpse:
-  fire: 1
 corpse_nutrition: 300
 gehennom_exclusive: 1
 glyph: d
@@ -2035,6 +2195,7 @@ sound: bark
 speed: 14
 weight: 600
 ---
+_corpse: {}
 ac: 10
 alignment: 0
 always_hostile: 1
@@ -2044,7 +2205,6 @@ attacks:
     type: physical
 can_fly: 1
 color: gray
-corpse: {}
 corpse_nutrition: 10
 glyph: e
 hitdice: 1
@@ -2065,6 +2225,7 @@ sound: silent
 speed: 3
 weight: 10
 ---
+_corpse: {}
 ac: 9
 alignment: 0
 always_hostile: 1
@@ -2075,7 +2236,6 @@ attacks:
 can_fly: 1
 cannot_pickup_items: 1
 color: blue
-corpse: {}
 corpse_nutrition: 10
 glyph: e
 hitdice: 2
@@ -2094,6 +2254,8 @@ sound: silent
 speed: 1
 weight: 10
 ---
+_corpse:
+  cold: 1
 absent_from_gehennom: 1
 ac: 4
 alignment: 0
@@ -2105,8 +2267,6 @@ attacks:
 can_fly: 1
 cannot_pickup_items: 1
 color: white
-corpse:
-  cold: 1
 corpse_nutrition: 10
 glyph: e
 hitdice: 6
@@ -2129,6 +2289,8 @@ sound: silent
 speed: 13
 weight: 10
 ---
+_corpse:
+  fire: 1
 ac: 4
 alignment: 0
 always_hostile: 1
@@ -2138,8 +2300,6 @@ attacks:
     type: fire
 can_fly: 1
 color: red
-corpse:
-  fire: 1
 corpse_nutrition: 10
 glyph: e
 hitdice: 6
@@ -2162,6 +2322,8 @@ sound: silent
 speed: 13
 weight: 10
 ---
+_corpse:
+  elec: 1
 ac: 4
 alignment: 0
 always_hostile: 1
@@ -2171,8 +2333,6 @@ attacks:
     type: electricity
 can_fly: 1
 color: bright_blue
-corpse:
-  elec: 1
 corpse_nutrition: 10
 glyph: e
 hitdice: 6
@@ -2195,6 +2355,7 @@ sound: silent
 speed: 13
 weight: 10
 ---
+_corpse: {}
 ac: 6
 alignment: 0
 attacks:
@@ -2202,7 +2363,6 @@ attacks:
     mode: bite
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 150
 food_makes_peaceful: 1
 glyph: f
@@ -2222,6 +2382,7 @@ sound: mew
 speed: 18
 weight: 150
 ---
+_corpse: {}
 ac: 5
 alignment: 0
 attacks:
@@ -2229,7 +2390,6 @@ attacks:
     mode: bite
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 200
 food_makes_peaceful: 1
 glyph: f
@@ -2248,6 +2408,7 @@ sound: mew
 speed: 16
 weight: 200
 ---
+_corpse: {}
 ac: 6
 alignment: 0
 always_hostile: 1
@@ -2262,7 +2423,6 @@ attacks:
     mode: bite
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 300
 glyph: f
 hitdice: 4
@@ -2280,6 +2440,7 @@ sound: growl
 speed: 15
 weight: 600
 ---
+_corpse: {}
 ac: 6
 alignment: 0
 always_hostile: 1
@@ -2294,7 +2455,6 @@ attacks:
     mode: bite
     type: physical
 color: cyan
-corpse: {}
 corpse_nutrition: 300
 glyph: f
 hitdice: 5
@@ -2312,6 +2472,7 @@ sound: growl
 speed: 15
 weight: 600
 ---
+_corpse: {}
 ac: 6
 alignment: 0
 always_hostile: 1
@@ -2326,7 +2487,6 @@ attacks:
     mode: bite
     type: physical
 color: black
-corpse: {}
 corpse_nutrition: 300
 glyph: f
 hitdice: 5
@@ -2344,6 +2504,7 @@ sound: growl
 speed: 15
 weight: 600
 ---
+_corpse: {}
 ac: 4
 alignment: 0
 attacks:
@@ -2351,7 +2512,6 @@ attacks:
     mode: bite
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 250
 food_makes_peaceful: 1
 glyph: f
@@ -2371,6 +2531,7 @@ sound: mew
 speed: 15
 weight: 250
 ---
+_corpse: {}
 ac: 6
 alignment: 0
 always_hostile: 1
@@ -2385,7 +2546,6 @@ attacks:
     mode: bite
     type: physical
 color: yellow
-corpse: {}
 corpse_nutrition: 300
 glyph: f
 hitdice: 6
@@ -2403,6 +2563,8 @@ sound: growl
 speed: 12
 weight: 600
 ---
+_corpse:
+  poison: 1
 ac: 2
 alignment: -9
 attacks:
@@ -2420,8 +2582,6 @@ attacks:
     type: stealintrinsic
 can_swim: 1
 color: green
-corpse:
-  poison: 1
 corpse_nutrition: 20
 follows_stair_users: 1
 glyph: g
@@ -2440,6 +2600,8 @@ sound: laugh
 speed: 12
 weight: 100
 ---
+_corpse:
+  stone: 1
 ac: -4
 alignment: -9
 always_hostile: 1
@@ -2454,8 +2616,6 @@ attacks:
     mode: bite
     type: physical
 color: brown
-corpse:
-  stone: 1
 corpse_nutrition: 200
 glyph: g
 has_thick_hide: 1
@@ -2475,6 +2635,8 @@ sound: grunt
 speed: 10
 weight: 1000
 ---
+_corpse:
+  stone: 1
 ac: -2
 alignment: -12
 always_hostile: 1
@@ -2490,8 +2652,6 @@ attacks:
     type: physical
 can_fly: 1
 color: magenta
-corpse:
-  stone: 1
 corpse_nutrition: 300
 glyph: g
 has_thick_hide: 1
@@ -2514,6 +2674,7 @@ speed: 15
 wants_magic_items: 1
 weight: 1200
 ---
+_corpse: {}
 ac: 10
 alignment: 6
 attacks:
@@ -2521,7 +2682,6 @@ attacks:
     mode: weapon
     type: physical
 color: green
-corpse: {}
 corpse_nutrition: 200
 glyph: h
 has_infravision: 1
@@ -2541,6 +2701,7 @@ speed: 9
 wants_wargear: 1
 weight: 500
 ---
+_corpse: {}
 ac: 10
 alignment: 4
 attacks:
@@ -2548,7 +2709,6 @@ attacks:
     mode: weapon
     type: physical
 color: red
-corpse: {}
 corpse_nutrition: 300
 glyph: h
 has_infravision: 1
@@ -2574,6 +2734,7 @@ wants_gold: 1
 wants_wargear: 1
 weight: 900
 ---
+_corpse: {}
 ac: 5
 alignment: -6
 attacks:
@@ -2581,7 +2742,6 @@ attacks:
     mode: weapon
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 250
 glyph: h
 has_infravision: 1
@@ -2602,6 +2762,7 @@ speed: 9
 wants_wargear: 1
 weight: 1250
 ---
+_corpse: {}
 ac: 10
 alignment: 5
 attacks:
@@ -2612,7 +2773,6 @@ attacks:
     mode: weapon
     type: physical
 color: blue
-corpse: {}
 corpse_nutrition: 300
 glyph: h
 has_infravision: 1
@@ -2639,6 +2799,7 @@ wants_gold: 1
 wants_wargear: 1
 weight: 900
 ---
+_corpse: {}
 ac: 10
 alignment: 6
 attacks:
@@ -2649,7 +2810,6 @@ attacks:
     mode: weapon
     type: physical
 color: magenta
-corpse: {}
 corpse_nutrition: 300
 glyph: h
 has_infravision: 1
@@ -2676,6 +2836,7 @@ wants_gold: 1
 wants_wargear: 1
 weight: 900
 ---
+_corpse: {}
 ac: 5
 alignment: -8
 always_hostile: 1
@@ -2694,7 +2855,6 @@ attacks:
     type: eatbrain
 can_fly: 1
 color: magenta
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 glyph: h
@@ -2718,6 +2878,7 @@ wants_gold: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 0
 alignment: -8
 always_hostile: 1
@@ -2742,7 +2903,6 @@ attacks:
     type: eatbrain
 can_fly: 1
 color: magenta
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 glyph: h
@@ -2766,6 +2926,7 @@ wants_gold: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 7
 alignment: -7
 always_hostile: 1
@@ -2780,7 +2941,6 @@ attacks:
     mode: bite
     type: physical
 color: red
-corpse: {}
 corpse_nutrition: 100
 follows_stair_users: 1
 glyph: i
@@ -2802,6 +2962,9 @@ sound: silent
 speed: 3
 weight: 100
 ---
+_corpse:
+  poison: 1
+  sleep: 1
 ac: 6
 alignment: -7
 attacks:
@@ -2810,9 +2973,6 @@ attacks:
     type: sleep
 can_fly: 1
 color: green
-corpse:
-  poison: 1
-  sleep: 1
 corpse_nutrition: 100
 follows_stair_users: 1
 glyph: i
@@ -2832,6 +2992,7 @@ sound: silent
 speed: 12
 weight: 60
 ---
+_corpse: {}
 ac: 2
 alignment: -7
 attacks:
@@ -2839,7 +3000,6 @@ attacks:
     mode: claw
     type: physical
 color: red
-corpse: {}
 corpse_nutrition: 10
 follows_stair_users: 1
 glyph: i
@@ -2858,6 +3018,8 @@ sound: cuss
 speed: 12
 weight: 20
 ---
+_corpse:
+  sleep: 1
 ac: 7
 alignment: -7
 always_hostile: 1
@@ -2866,8 +3028,6 @@ attacks:
     mode: claw
     type: physical
 color: brown
-corpse:
-  sleep: 1
 corpse_nutrition: 100
 follows_stair_users: 1
 gehennom_exclusive: 1
@@ -2893,6 +3053,8 @@ sound: silent
 speed: 3
 weight: 150
 ---
+_corpse:
+  poison: 1
 ac: 2
 alignment: -7
 attacks:
@@ -2906,8 +3068,6 @@ attacks:
     mode: bite
     type: physical
 color: blue
-corpse:
-  poison: 1
 corpse_nutrition: 200
 follows_stair_users: 1
 glyph: i
@@ -2926,6 +3086,8 @@ sound: silent
 speed: 15
 weight: 200
 ---
+_corpse:
+  poison: 1
 ac: 5
 alignment: 7
 attacks:
@@ -2933,8 +3095,6 @@ attacks:
     mode: bite
     type: physical
 color: cyan
-corpse:
-  poison: 1
 corpse_nutrition: 200
 follows_stair_users: 1
 glyph: i
@@ -2954,6 +3114,9 @@ sound: sqawk
 speed: 13
 weight: 300
 ---
+_corpse:
+  cold: 1
+  poison: 1
 ac: 8
 alignment: 0
 always_hostile: 1
@@ -2963,9 +3126,6 @@ attacks:
     type: cold
 cannot_pickup_items: 1
 color: blue
-corpse:
-  cold: 1
-  poison: 1
 corpse_nutrition: 20
 glyph: j
 hitdice: 4
@@ -2989,6 +3149,7 @@ sound: silent
 speed: 0
 weight: 50
 ---
+_corpse: {}
 ac: 8
 acidic_corpse: 1
 alignment: 0
@@ -2999,7 +3160,6 @@ attacks:
     type: acid
 cannot_pickup_items: 1
 color: green
-corpse: {}
 corpse_nutrition: 20
 glyph: j
 hitdice: 5
@@ -3023,6 +3183,7 @@ sound: silent
 speed: 0
 weight: 50
 ---
+_corpse: {}
 ac: 8
 acidic_corpse: 1
 alignment: 0
@@ -3036,7 +3197,6 @@ attacks:
     type: acid
 cannot_pickup_items: 1
 color: brown
-corpse: {}
 corpse_nutrition: 20
 glyph: j
 hitdice: 6
@@ -3060,6 +3220,7 @@ sound: silent
 speed: 3
 weight: 50
 ---
+_corpse: {}
 ac: 10
 alignment: -2
 always_hostile: 1
@@ -3068,7 +3229,6 @@ attacks:
     mode: weapon
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 100
 glyph: k
 has_infravision: 1
@@ -3090,6 +3250,7 @@ speed: 6
 wants_wargear: 1
 weight: 400
 ---
+_corpse: {}
 ac: 10
 alignment: -3
 always_hostile: 1
@@ -3098,7 +3259,6 @@ attacks:
     mode: weapon
     type: physical
 color: red
-corpse: {}
 corpse_nutrition: 150
 glyph: k
 has_infravision: 1
@@ -3120,6 +3280,7 @@ speed: 6
 wants_wargear: 1
 weight: 450
 ---
+_corpse: {}
 ac: 10
 alignment: -4
 always_hostile: 1
@@ -3128,7 +3289,6 @@ attacks:
     mode: weapon
     type: physical
 color: magenta
-corpse: {}
 corpse_nutrition: 200
 glyph: k
 has_infravision: 1
@@ -3152,6 +3312,7 @@ speed: 6
 wants_wargear: 1
 weight: 500
 ---
+_corpse: {}
 ac: 6
 alignment: -4
 always_hostile: 1
@@ -3160,7 +3321,6 @@ attacks:
     mode: magic
     type: wizardspell
 color: bright_blue
-corpse: {}
 corpse_nutrition: 150
 glyph: k
 has_infravision: 1
@@ -3182,6 +3342,7 @@ speed: 6
 wants_magic_items: 1
 weight: 450
 ---
+_corpse: {}
 ac: 8
 alignment: 0
 always_hostile: 1
@@ -3190,7 +3351,6 @@ attacks:
     mode: claw
     type: stealgold
 color: green
-corpse: {}
 corpse_nutrition: 30
 glyph: l
 has_teleportitis: 1
@@ -3208,6 +3368,7 @@ speed: 15
 wants_gold: 1
 weight: 60
 ---
+_corpse: {}
 ac: 7
 alignment: 0
 always_hostile: 1
@@ -3216,7 +3377,6 @@ attacks:
     mode: claw
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 200
 glyph: m
 has_thick_hide: 1
@@ -3240,6 +3400,7 @@ sound: silent
 speed: 3
 weight: 300
 ---
+_corpse: {}
 ac: 7
 alignment: 0
 always_hostile: 1
@@ -3249,7 +3410,6 @@ attacks:
     type: stick
 clings_to_ceiling: 1
 color: red
-corpse: {}
 corpse_nutrition: 400
 glyph: m
 has_thick_hide: 1
@@ -3274,6 +3434,7 @@ sound: silent
 speed: 3
 weight: 600
 ---
+_corpse: {}
 ac: 7
 alignment: 0
 always_hostile: 1
@@ -3286,7 +3447,6 @@ attacks:
     type: stick
 clings_to_ceiling: 1
 color: magenta
-corpse: {}
 corpse_nutrition: 500
 glyph: m
 has_thick_hide: 1
@@ -3311,6 +3471,7 @@ sound: silent
 speed: 3
 weight: 800
 ---
+_corpse: {}
 ac: 9
 alignment: 0
 always_hostile: 1
@@ -3322,7 +3483,6 @@ attacks:
     mode: claw
     type: seduce
 color: green
-corpse: {}
 corpse_nutrition: 300
 glyph: n
 has_teleportitis: 1
@@ -3341,6 +3501,7 @@ speed: 12
 wants_wargear: 1
 weight: 600
 ---
+_corpse: {}
 ac: 9
 alignment: 0
 always_hostile: 1
@@ -3353,7 +3514,6 @@ attacks:
     type: seduce
 can_swim: 1
 color: blue
-corpse: {}
 corpse_nutrition: 300
 glyph: n
 has_teleportitis: 1
@@ -3372,6 +3532,7 @@ speed: 12
 wants_wargear: 1
 weight: 600
 ---
+_corpse: {}
 ac: 9
 alignment: 0
 always_hostile: 1
@@ -3383,7 +3544,6 @@ attacks:
     mode: claw
     type: seduce
 color: brown
-corpse: {}
 corpse_nutrition: 300
 glyph: n
 has_teleportitis: 1
@@ -3402,6 +3562,7 @@ speed: 12
 wants_wargear: 1
 weight: 600
 ---
+_corpse: {}
 ac: 10
 alignment: -3
 attacks:
@@ -3409,7 +3570,6 @@ attacks:
     mode: weapon
     type: physical
 color: gray
-corpse: {}
 corpse_nutrition: 100
 glyph: o
 has_infravision: 1
@@ -3430,6 +3590,7 @@ speed: 6
 wants_wargear: 1
 weight: 400
 ---
+_corpse: {}
 ac: 10
 alignment: -4
 attacks:
@@ -3437,7 +3598,6 @@ attacks:
     mode: weapon
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 200
 glyph: o
 has_infravision: 1
@@ -3459,6 +3619,7 @@ speed: 9
 wants_wargear: 1
 weight: 1000
 ---
+_corpse: {}
 ac: 10
 alignment: -3
 attacks:
@@ -3466,7 +3627,6 @@ attacks:
     mode: weapon
     type: physical
 color: red
-corpse: {}
 corpse_nutrition: 150
 glyph: o
 has_infravision: 1
@@ -3492,6 +3652,7 @@ wants_gold: 1
 wants_wargear: 1
 weight: 850
 ---
+_corpse: {}
 ac: 10
 alignment: -4
 attacks:
@@ -3499,7 +3660,6 @@ attacks:
     mode: weapon
     type: physical
 color: yellow
-corpse: {}
 corpse_nutrition: 200
 glyph: o
 has_infravision: 1
@@ -3524,6 +3684,7 @@ wants_gold: 1
 wants_wargear: 1
 weight: 1000
 ---
+_corpse: {}
 ac: 10
 alignment: -5
 attacks:
@@ -3531,7 +3692,6 @@ attacks:
     mode: weapon
     type: physical
 color: blue
-corpse: {}
 corpse_nutrition: 200
 glyph: o
 has_infravision: 1
@@ -3556,6 +3716,7 @@ wants_gold: 1
 wants_wargear: 1
 weight: 1200
 ---
+_corpse: {}
 ac: 10
 alignment: -4
 attacks:
@@ -3563,7 +3724,6 @@ attacks:
     mode: weapon
     type: physical
 color: black
-corpse: {}
 corpse_nutrition: 300
 glyph: o
 has_infravision: 1
@@ -3588,6 +3748,7 @@ wants_gold: 1
 wants_wargear: 1
 weight: 1300
 ---
+_corpse: {}
 ac: 5
 alignment: -5
 attacks:
@@ -3595,7 +3756,6 @@ attacks:
     mode: magic
     type: wizardspell
 color: bright_blue
-corpse: {}
 corpse_nutrition: 300
 glyph: o
 has_infravision: 1
@@ -3619,6 +3779,7 @@ wants_gold: 1
 wants_magic_items: 1
 weight: 1000
 ---
+_corpse: {}
 ac: 10
 alignment: -5
 attacks:
@@ -3629,7 +3790,6 @@ attacks:
     mode: weapon
     type: physical
 color: magenta
-corpse: {}
 corpse_nutrition: 350
 glyph: o
 has_infravision: 1
@@ -3653,6 +3813,7 @@ wants_gold: 1
 wants_wargear: 1
 weight: 1350
 ---
+_corpse: {}
 ac: 3
 alignment: 0
 always_hostile: 1
@@ -3663,7 +3824,6 @@ attacks:
 cannot_pickup_items: 1
 clings_to_ceiling: 1
 color: gray
-corpse: {}
 corpse_nutrition: 200
 glyph: p
 hides_on_ceiling: 1
@@ -3682,6 +3842,7 @@ sound: silent
 speed: 1
 weight: 200
 ---
+_corpse: {}
 ac: 0
 alignment: 0
 always_hostile: 1
@@ -3692,7 +3853,6 @@ attacks:
 cannot_pickup_items: 1
 clings_to_ceiling: 1
 color: cyan
-corpse: {}
 corpse_nutrition: 300
 glyph: p
 hides_on_ceiling: 1
@@ -3711,6 +3871,7 @@ sound: silent
 speed: 1
 weight: 400
 ---
+_corpse: {}
 ac: 0
 alignment: 0
 always_hostile: 1
@@ -3721,7 +3882,6 @@ attacks:
 cannot_pickup_items: 1
 clings_to_ceiling: 1
 color: white
-corpse: {}
 corpse_nutrition: 300
 glyph: p
 hides_on_ceiling: 1
@@ -3741,6 +3901,7 @@ sound: silent
 speed: 1
 weight: 400
 ---
+_corpse: {}
 ac: 7
 alignment: 0
 always_hostile: 1
@@ -3755,7 +3916,6 @@ attacks:
     mode: bite
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 100
 glyph: q
 hitdice: 2
@@ -3775,6 +3935,7 @@ sound: silent
 speed: 9
 weight: 400
 ---
+_corpse: {}
 ac: 0
 alignment: -2
 always_hostile: 1
@@ -3786,7 +3947,6 @@ attacks:
     mode: bite
     type: physical
 color: gray
-corpse: {}
 corpse_nutrition: 500
 glyph: q
 has_thick_hide: 1
@@ -3806,6 +3966,7 @@ sound: roar
 speed: 9
 weight: 2500
 ---
+_corpse: {}
 ac: 4
 alignment: 0
 always_hostile: 1
@@ -3820,7 +3981,6 @@ attacks:
     mode: claw
     type: physical
 color: red
-corpse: {}
 corpse_nutrition: 500
 glyph: q
 hitdice: 6
@@ -3840,6 +4000,7 @@ sound: imitate
 speed: 18
 weight: 1200
 ---
+_corpse: {}
 ac: 2
 alignment: 0
 always_hostile: 1
@@ -3849,7 +4010,6 @@ attacks:
     type: physical
 clings_to_ceiling: 1
 color: cyan
-corpse: {}
 corpse_nutrition: 500
 glyph: q
 hitdice: 8
@@ -3869,6 +4029,7 @@ sound: burble
 speed: 3
 weight: 2500
 ---
+_corpse: {}
 ac: 6
 alignment: 0
 always_hostile: 1
@@ -3877,7 +4038,6 @@ attacks:
     mode: claw
     type: physical
 color: gray
-corpse: {}
 corpse_nutrition: 650
 glyph: q
 has_thick_hide: 1
@@ -3897,6 +4057,7 @@ sound: silent
 speed: 12
 weight: 2650
 ---
+_corpse: {}
 ac: 5
 alignment: 0
 always_hostile: 1
@@ -3908,7 +4069,6 @@ attacks:
     mode: claw
     type: physical
 color: gray
-corpse: {}
 corpse_nutrition: 800
 glyph: q
 has_thick_hide: 1
@@ -3928,6 +4088,7 @@ sound: silent
 speed: 12
 weight: 3800
 ---
+_corpse: {}
 ac: 5
 alignment: 0
 always_hostile: 1
@@ -3939,7 +4100,6 @@ attacks:
     mode: headbutt
     type: physical
 color: black
-corpse: {}
 corpse_nutrition: 800
 glyph: q
 has_thick_hide: 1
@@ -3959,6 +4119,7 @@ sound: silent
 speed: 12
 weight: 3800
 ---
+_corpse: {}
 ac: 7
 alignment: 0
 always_hostile: 1
@@ -3967,7 +4128,6 @@ attacks:
     mode: bite
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 12
 glyph: r
 hitdice: 0
@@ -3986,6 +4146,7 @@ sound: sqeek
 speed: 12
 weight: 20
 ---
+_corpse: {}
 ac: 7
 alignment: 0
 always_hostile: 1
@@ -3994,7 +4155,6 @@ attacks:
     mode: bite
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 30
 glyph: r
 hitdice: 1
@@ -4013,6 +4173,7 @@ sound: sqeek
 speed: 10
 weight: 30
 ---
+_corpse: {}
 ac: 6
 alignment: 0
 always_hostile: 1
@@ -4021,7 +4182,6 @@ attacks:
     mode: bite
     type: poisoncon
 color: brown
-corpse: {}
 corpse_nutrition: 5
 glyph: r
 hitdice: 2
@@ -4041,6 +4201,7 @@ sound: sqeek
 speed: 12
 weight: 30
 ---
+_corpse: {}
 ac: 6
 alignment: -7
 always_hostile: 1
@@ -4049,7 +4210,6 @@ attacks:
     mode: bite
     type: lycanthropy
 color: brown
-corpse: {}
 corpse_nutrition: 30
 glyph: r
 hitdice: 2
@@ -4071,6 +4231,7 @@ sound: sqeek
 speed: 12
 weight: 40
 ---
+_corpse: {}
 ac: 0
 alignment: 0
 always_hostile: 1
@@ -4081,7 +4242,6 @@ attacks:
 can_eat_metal: 1
 can_eat_rock: 1
 color: gray
-corpse: {}
 corpse_nutrition: 30
 glyph: r
 hitdice: 3
@@ -4101,6 +4261,7 @@ wants_gold: 1
 wants_wargear: 1
 weight: 30
 ---
+_corpse: {}
 ac: 0
 alignment: 0
 always_hostile: 1
@@ -4111,7 +4272,6 @@ attacks:
 can_eat_rock: 1
 can_swim: 1
 color: brown
-corpse: {}
 corpse_nutrition: 30
 glyph: r
 hitdice: 3
@@ -4130,6 +4290,8 @@ sound: silent
 speed: 3
 weight: 30
 ---
+_corpse:
+  poison: 1
 ac: 3
 alignment: 0
 always_hostile: 1
@@ -4138,8 +4300,6 @@ attacks:
     mode: bite
     type: physical
 color: gray
-corpse:
-  poison: 1
 corpse_nutrition: 50
 glyph: s
 hides_under_item: 1
@@ -4160,6 +4320,8 @@ sound: silent
 speed: 12
 weight: 50
 ---
+_corpse:
+  poison: 1
 ac: 3
 alignment: 0
 always_hostile: 1
@@ -4168,8 +4330,6 @@ attacks:
     mode: bite
     type: poison
 color: yellow
-corpse:
-  poison: 1
 corpse_nutrition: 50
 glyph: s
 hides_under_item: 1
@@ -4189,6 +4349,8 @@ sound: silent
 speed: 4
 weight: 50
 ---
+_corpse:
+  poison: 1
 ac: 4
 alignment: 0
 always_hostile: 1
@@ -4197,8 +4359,6 @@ attacks:
     mode: bite
     type: poison
 color: magenta
-corpse:
-  poison: 1
 corpse_nutrition: 100
 glyph: s
 hitdice: 5
@@ -4219,6 +4379,8 @@ sound: silent
 speed: 15
 weight: 100
 ---
+_corpse:
+  poison: 1
 ac: 3
 alignment: 0
 always_hostile: 1
@@ -4233,8 +4395,6 @@ attacks:
     mode: sting
     type: poison
 color: red
-corpse:
-  poison: 1
 corpse_nutrition: 100
 glyph: s
 hides_under_item: 1
@@ -4255,6 +4415,7 @@ sound: silent
 speed: 15
 weight: 50
 ---
+_corpse: {}
 ac: 3
 alignment: 0
 always_hostile: 1
@@ -4264,7 +4425,6 @@ attacks:
     type: digest
 can_fly: 1
 color: gray
-corpse: {}
 corpse_nutrition: 350
 follows_stair_users: 1
 glyph: t
@@ -4286,6 +4446,7 @@ sound: silent
 speed: 3
 weight: 800
 ---
+_corpse: {}
 ac: 3
 alignment: 0
 always_hostile: 1
@@ -4294,7 +4455,6 @@ attacks:
     mode: engulf
     type: digest
 color: green
-corpse: {}
 corpse_nutrition: 350
 follows_stair_users: 1
 glyph: t
@@ -4316,6 +4476,8 @@ sound: silent
 speed: 3
 weight: 800
 ---
+_corpse:
+  poison: 1
 ac: 2
 alignment: 7
 attacks:
@@ -4326,8 +4488,6 @@ attacks:
     mode: kick
     type: physical
 color: white
-corpse:
-  poison: 1
 corpse_nutrition: 300
 glyph: u
 hitdice: 4
@@ -4348,6 +4508,8 @@ speed: 24
 wants_gems: 1
 weight: 1300
 ---
+_corpse:
+  poison: 1
 ac: 2
 alignment: 0
 attacks:
@@ -4358,8 +4520,6 @@ attacks:
     mode: kick
     type: physical
 color: gray
-corpse:
-  poison: 1
 corpse_nutrition: 300
 glyph: u
 hitdice: 4
@@ -4380,6 +4540,8 @@ speed: 24
 wants_gems: 1
 weight: 1300
 ---
+_corpse:
+  poison: 1
 ac: 2
 alignment: -7
 attacks:
@@ -4390,8 +4552,6 @@ attacks:
     mode: kick
     type: physical
 color: black
-corpse:
-  poison: 1
 corpse_nutrition: 300
 glyph: u
 hitdice: 4
@@ -4412,6 +4572,7 @@ speed: 24
 wants_gems: 1
 weight: 1300
 ---
+_corpse: {}
 ac: 6
 alignment: 0
 attacks:
@@ -4422,7 +4583,6 @@ attacks:
     mode: bite
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 250
 food_makes_peaceful: 1
 glyph: u
@@ -4443,6 +4603,7 @@ sound: neigh
 speed: 16
 weight: 1300
 ---
+_corpse: {}
 ac: 5
 alignment: 0
 attacks:
@@ -4453,7 +4614,6 @@ attacks:
     mode: bite
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 300
 food_makes_peaceful: 1
 glyph: u
@@ -4474,6 +4634,7 @@ sound: neigh
 speed: 20
 weight: 1500
 ---
+_corpse: {}
 ac: 4
 alignment: 0
 attacks:
@@ -4484,7 +4645,6 @@ attacks:
     mode: bite
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 350
 food_makes_peaceful: 1
 glyph: u
@@ -4505,6 +4665,7 @@ sound: neigh
 speed: 24
 weight: 1800
 ---
+_corpse: {}
 ac: 0
 alignment: 0
 always_hostile: 1
@@ -4514,7 +4675,6 @@ attacks:
     type: physical
 can_fly: 1
 color: gray
-corpse: {}
 glyph: v
 hitdice: 3
 is_amorphous: 1
@@ -4541,6 +4701,7 @@ sound: silent
 speed: 1
 weight: 0
 ---
+_corpse: {}
 ac: 2
 alignment: 0
 always_hostile: 1
@@ -4550,7 +4711,6 @@ attacks:
     type: blind
 can_fly: 1
 color: brown
-corpse: {}
 glyph: v
 hitdice: 4
 is_amphibious: 1
@@ -4575,6 +4735,7 @@ sound: silent
 speed: 20
 weight: 0
 ---
+_corpse: {}
 absent_from_gehennom: 1
 ac: 2
 alignment: 0
@@ -4585,7 +4746,6 @@ attacks:
     type: cold
 can_fly: 1
 color: cyan
-corpse: {}
 glyph: v
 hitdice: 5
 infravision_detectable: 1
@@ -4612,6 +4772,7 @@ sound: silent
 speed: 20
 weight: 0
 ---
+_corpse: {}
 ac: 2
 alignment: 0
 always_hostile: 1
@@ -4627,7 +4788,6 @@ attacks:
     type: electricity
 can_fly: 1
 color: bright_blue
-corpse: {}
 glyph: v
 hitdice: 6
 is_amphibious: 1
@@ -4655,6 +4815,7 @@ sound: silent
 speed: 20
 weight: 0
 ---
+_corpse: {}
 ac: 2
 alignment: 0
 always_hostile: 1
@@ -4664,7 +4825,6 @@ attacks:
     type: fire
 can_fly: 1
 color: blue
-corpse: {}
 gehennom_exclusive: 1
 glyph: v
 hitdice: 7
@@ -4693,6 +4853,7 @@ sound: silent
 speed: 22
 weight: 0
 ---
+_corpse: {}
 ac: 2
 alignment: 0
 always_hostile: 1
@@ -4705,7 +4866,6 @@ attacks:
     type: fire
 can_fly: 1
 color: yellow
-corpse: {}
 gehennom_exclusive: 1
 glyph: v
 hitdice: 8
@@ -4734,6 +4894,7 @@ sound: silent
 speed: 22
 weight: 0
 ---
+_corpse: {}
 ac: 5
 alignment: 0
 always_hostile: 1
@@ -4743,7 +4904,6 @@ attacks:
     type: physical
 cannot_pickup_items: 1
 color: brown
-corpse: {}
 corpse_nutrition: 250
 glyph: w
 hitdice: 8
@@ -4760,6 +4920,7 @@ sound: silent
 speed: 3
 weight: 600
 ---
+_corpse: {}
 ac: 5
 alignment: 0
 always_hostile: 1
@@ -4768,7 +4929,6 @@ attacks:
     mode: bite
     type: physical
 color: magenta
-corpse: {}
 corpse_nutrition: 250
 glyph: w
 hitdice: 8
@@ -4785,6 +4945,7 @@ sound: silent
 speed: 3
 weight: 600
 ---
+_corpse: {}
 ac: 5
 alignment: 0
 always_hostile: 1
@@ -4794,7 +4955,6 @@ attacks:
     type: physical
 cannot_pickup_items: 1
 color: brown
-corpse: {}
 corpse_nutrition: 500
 extra_nasty: 1
 glyph: w
@@ -4815,6 +4975,7 @@ sound: silent
 speed: 3
 weight: 1500
 ---
+_corpse: {}
 ac: 6
 alignment: 0
 always_hostile: 1
@@ -4826,7 +4987,6 @@ attacks:
     mode: engulf
     type: digest
 color: magenta
-corpse: {}
 corpse_nutrition: 700
 extra_nasty: 1
 glyph: w
@@ -4847,6 +5007,7 @@ sound: silent
 speed: 9
 weight: 2700
 ---
+_corpse: {}
 ac: 9
 alignment: 0
 always_hostile: 1
@@ -4855,7 +5016,6 @@ attacks:
     mode: bite
     type: electricity
 color: magenta
-corpse: {}
 corpse_nutrition: 10
 glyph: x
 hitdice: 0
@@ -4875,6 +5035,8 @@ sound: buzz
 speed: 12
 weight: 15
 ---
+_corpse:
+  poison: 1
 ac: -4
 alignment: 0
 always_hostile: 1
@@ -4884,8 +5046,6 @@ attacks:
     type: legs
 can_fly: 1
 color: red
-corpse:
-  poison: 1
 corpse_nutrition: 300
 glyph: x
 hitdice: 7
@@ -4904,6 +5064,7 @@ sound: buzz
 speed: 18
 weight: 300
 ---
+_corpse: {}
 ac: 0
 alignment: 0
 always_hostile: 1
@@ -4914,7 +5075,6 @@ attacks:
 can_fly: 1
 cannot_pickup_items: 1
 color: yellow
-corpse: {}
 glyph: y
 hitdice: 3
 infravision_detectable: 1
@@ -4947,6 +5107,7 @@ sound: silent
 speed: 15
 weight: 0
 ---
+_corpse: {}
 ac: 0
 alignment: 0
 always_hostile: 1
@@ -4957,7 +5118,6 @@ attacks:
 can_fly: 1
 cannot_pickup_items: 1
 color: black
-corpse: {}
 glyph: y
 hitdice: 5
 is_amorphous: 1
@@ -4990,6 +5150,7 @@ sound: silent
 speed: 15
 weight: 0
 ---
+_corpse: {}
 ac: 3
 alignment: 0
 always_hostile: 1
@@ -5004,7 +5165,6 @@ attacks:
     mode: bite
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 600
 glyph: z
 hitdice: 9
@@ -5023,6 +5183,7 @@ sound: silent
 speed: 8
 weight: 1200
 ---
+_corpse: {}
 absent_from_gehennom: 1
 ac: 5
 alignment: 7
@@ -5038,7 +5199,6 @@ attacks:
     type: wrap
 can_fly: 1
 color: green
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -5061,6 +5221,7 @@ sound: hiss
 speed: 10
 weight: 900
 ---
+_corpse: {}
 absent_from_gehennom: 1
 ac: 0
 alignment: 7
@@ -5075,7 +5236,6 @@ attacks:
     mode: kick
     type: physical
 color: yellow
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -5101,6 +5261,7 @@ speed: 8
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 absent_from_gehennom: 1
 ac: -4
 alignment: 12
@@ -5119,7 +5280,6 @@ attacks:
     type: magicmissile
 can_fly: 1
 color: white
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -5147,6 +5307,7 @@ speed: 10
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 absent_from_gehennom: 1
 ac: -5
 alignment: 15
@@ -5165,7 +5326,6 @@ attacks:
     type: wizardspell
 can_fly: 1
 color: yellow
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -5188,6 +5348,7 @@ sound: neigh
 speed: 18
 weight: 1450
 ---
+_corpse: {}
 absent_from_gehennom: 1
 ac: -6
 alignment: 15
@@ -5209,7 +5370,6 @@ attacks:
     type: wizardspell
 can_fly: 1
 color: magenta
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -5241,6 +5401,7 @@ wants_magic_items: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 8
 alignment: 0
 attacks:
@@ -5249,7 +5410,6 @@ attacks:
     type: physical
 can_fly: 1
 color: brown
-corpse: {}
 corpse_nutrition: 20
 glyph: B
 hitdice: 0
@@ -5269,6 +5429,7 @@ sound: sqeek
 speed: 22
 weight: 20
 ---
+_corpse: {}
 ac: 7
 alignment: 0
 always_hostile: 1
@@ -5278,7 +5439,6 @@ attacks:
     type: physical
 can_fly: 1
 color: red
-corpse: {}
 corpse_nutrition: 30
 glyph: B
 hitdice: 2
@@ -5297,6 +5457,7 @@ sound: sqeek
 speed: 22
 weight: 30
 ---
+_corpse: {}
 ac: 6
 alignment: 0
 always_hostile: 1
@@ -5309,7 +5470,6 @@ attacks:
     type: blind
 can_fly: 1
 color: black
-corpse: {}
 corpse_nutrition: 20
 glyph: B
 hitdice: 4
@@ -5328,6 +5488,7 @@ sound: sqawk
 speed: 20
 weight: 40
 ---
+_corpse: {}
 ac: 6
 alignment: 0
 always_hostile: 1
@@ -5340,7 +5501,6 @@ attacks:
     type: poison
 can_fly: 1
 color: black
-corpse: {}
 corpse_nutrition: 20
 glyph: B
 hitdice: 5
@@ -5363,6 +5523,7 @@ sound: sqeek
 speed: 20
 weight: 30
 ---
+_corpse: {}
 ac: 4
 alignment: 0
 attacks:
@@ -5373,7 +5534,6 @@ attacks:
     mode: kick
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 500
 glyph: C
 hitdice: 4
@@ -5394,6 +5554,7 @@ wants_gold: 1
 wants_wargear: 1
 weight: 2500
 ---
+_corpse: {}
 ac: 3
 alignment: -1
 attacks:
@@ -5404,7 +5565,6 @@ attacks:
     mode: kick
     type: physical
 color: green
-corpse: {}
 corpse_nutrition: 600
 glyph: C
 hitdice: 5
@@ -5425,6 +5585,7 @@ wants_gold: 1
 wants_wargear: 1
 weight: 2550
 ---
+_corpse: {}
 ac: 2
 alignment: -3
 attacks:
@@ -5438,7 +5599,6 @@ attacks:
     mode: kick
     type: physical
 color: cyan
-corpse: {}
 corpse_nutrition: 500
 glyph: C
 hitdice: 6
@@ -5459,6 +5619,7 @@ wants_gold: 1
 wants_wargear: 1
 weight: 2550
 ---
+_corpse: {}
 ac: 2
 alignment: 0
 always_hostile: 1
@@ -5468,7 +5629,6 @@ attacks:
     type: physical
 can_fly: 1
 color: gray
-corpse: {}
 corpse_nutrition: 500
 glyph: D
 has_thick_hide: 1
@@ -5487,6 +5647,7 @@ wants_gems: 1
 wants_gold: 1
 weight: 1500
 ---
+_corpse: {}
 ac: 2
 alignment: 0
 always_hostile: 1
@@ -5496,7 +5657,6 @@ attacks:
     type: physical
 can_fly: 1
 color: gray
-corpse: {}
 corpse_nutrition: 500
 glyph: D
 has_thick_hide: 1
@@ -5515,6 +5675,7 @@ wants_gems: 1
 wants_gold: 1
 weight: 1500
 ---
+_corpse: {}
 ac: 2
 alignment: 0
 always_hostile: 1
@@ -5524,7 +5685,6 @@ attacks:
     type: physical
 can_fly: 1
 color: red
-corpse: {}
 corpse_nutrition: 500
 glyph: D
 has_thick_hide: 1
@@ -5545,6 +5705,7 @@ wants_gems: 1
 wants_gold: 1
 weight: 1500
 ---
+_corpse: {}
 ac: 2
 alignment: 0
 always_hostile: 1
@@ -5554,7 +5715,6 @@ attacks:
     type: physical
 can_fly: 1
 color: white
-corpse: {}
 corpse_nutrition: 500
 glyph: D
 has_thick_hide: 1
@@ -5574,6 +5734,7 @@ wants_gems: 1
 wants_gold: 1
 weight: 1500
 ---
+_corpse: {}
 ac: 2
 alignment: 0
 always_hostile: 1
@@ -5583,7 +5744,6 @@ attacks:
     type: physical
 can_fly: 1
 color: orange
-corpse: {}
 corpse_nutrition: 500
 glyph: D
 has_thick_hide: 1
@@ -5603,6 +5763,7 @@ wants_gems: 1
 wants_gold: 1
 weight: 1500
 ---
+_corpse: {}
 ac: 2
 alignment: 0
 always_hostile: 1
@@ -5612,7 +5773,6 @@ attacks:
     type: physical
 can_fly: 1
 color: black
-corpse: {}
 corpse_nutrition: 500
 glyph: D
 has_thick_hide: 1
@@ -5632,6 +5792,7 @@ wants_gems: 1
 wants_gold: 1
 weight: 1500
 ---
+_corpse: {}
 ac: 2
 alignment: 0
 always_hostile: 1
@@ -5641,7 +5802,6 @@ attacks:
     type: physical
 can_fly: 1
 color: blue
-corpse: {}
 corpse_nutrition: 500
 glyph: D
 has_thick_hide: 1
@@ -5661,6 +5821,7 @@ wants_gems: 1
 wants_gold: 1
 weight: 1500
 ---
+_corpse: {}
 ac: 2
 alignment: 0
 always_hostile: 1
@@ -5670,7 +5831,6 @@ attacks:
     type: physical
 can_fly: 1
 color: green
-corpse: {}
 corpse_nutrition: 500
 glyph: D
 has_thick_hide: 1
@@ -5691,6 +5851,7 @@ wants_gems: 1
 wants_gold: 1
 weight: 1500
 ---
+_corpse: {}
 ac: 2
 acidic_corpse: 1
 alignment: 0
@@ -5701,7 +5862,6 @@ attacks:
     type: physical
 can_fly: 1
 color: yellow
-corpse: {}
 corpse_nutrition: 500
 glyph: D
 has_thick_hide: 1
@@ -5722,6 +5882,7 @@ wants_gems: 1
 wants_gold: 1
 weight: 1500
 ---
+_corpse: {}
 ac: -1
 alignment: 4
 always_hostile: 1
@@ -5740,7 +5901,6 @@ attacks:
     type: physical
 can_fly: 1
 color: gray
-corpse: {}
 corpse_nutrition: 1500
 extra_nasty: 1
 glyph: D
@@ -5764,6 +5924,7 @@ wants_gold: 1
 wants_magic_items: 1
 weight: 4500
 ---
+_corpse: {}
 ac: -1
 alignment: 4
 always_hostile: 1
@@ -5782,7 +5943,6 @@ attacks:
     type: physical
 can_fly: 1
 color: gray
-corpse: {}
 corpse_nutrition: 1500
 extra_nasty: 1
 glyph: D
@@ -5807,6 +5967,8 @@ wants_gold: 1
 wants_magic_items: 1
 weight: 4500
 ---
+_corpse:
+  fire: 1
 ac: -1
 alignment: -4
 always_hostile: 1
@@ -5825,8 +5987,6 @@ attacks:
     type: physical
 can_fly: 1
 color: red
-corpse:
-  fire: 1
 corpse_nutrition: 1500
 extra_nasty: 1
 glyph: D
@@ -5852,6 +6012,8 @@ wants_gold: 1
 wants_magic_items: 1
 weight: 4500
 ---
+_corpse:
+  cold: 1
 ac: -1
 alignment: -5
 always_hostile: 1
@@ -5870,8 +6032,6 @@ attacks:
     type: physical
 can_fly: 1
 color: white
-corpse:
-  cold: 1
 corpse_nutrition: 1500
 extra_nasty: 1
 glyph: D
@@ -5896,6 +6056,8 @@ wants_gold: 1
 wants_magic_items: 1
 weight: 4500
 ---
+_corpse:
+  sleep: 1
 ac: -1
 alignment: 5
 always_hostile: 1
@@ -5914,8 +6076,6 @@ attacks:
     type: physical
 can_fly: 1
 color: orange
-corpse:
-  sleep: 1
 corpse_nutrition: 1500
 extra_nasty: 1
 glyph: D
@@ -5940,6 +6100,8 @@ wants_gold: 1
 wants_magic_items: 1
 weight: 4500
 ---
+_corpse:
+  disint: 1
 ac: -1
 alignment: -6
 always_hostile: 1
@@ -5958,8 +6120,6 @@ attacks:
     type: physical
 can_fly: 1
 color: black
-corpse:
-  disint: 1
 corpse_nutrition: 1500
 extra_nasty: 1
 glyph: D
@@ -5984,6 +6144,8 @@ wants_gold: 1
 wants_magic_items: 1
 weight: 4500
 ---
+_corpse:
+  elec: 1
 ac: -1
 alignment: -7
 always_hostile: 1
@@ -6002,8 +6164,6 @@ attacks:
     type: physical
 can_fly: 1
 color: blue
-corpse:
-  elec: 1
 corpse_nutrition: 1500
 extra_nasty: 1
 glyph: D
@@ -6028,6 +6188,8 @@ wants_gold: 1
 wants_magic_items: 1
 weight: 4500
 ---
+_corpse:
+  poison: 1
 ac: -1
 alignment: 6
 always_hostile: 1
@@ -6046,8 +6208,6 @@ attacks:
     type: physical
 can_fly: 1
 color: green
-corpse:
-  poison: 1
 corpse_nutrition: 1500
 extra_nasty: 1
 glyph: D
@@ -6073,6 +6233,8 @@ wants_gold: 1
 wants_magic_items: 1
 weight: 4500
 ---
+_corpse:
+  stone: 1
 ac: -1
 acidic_corpse: 1
 alignment: 7
@@ -6092,8 +6254,6 @@ attacks:
     type: physical
 can_fly: 1
 color: yellow
-corpse:
-  stone: 1
 corpse_nutrition: 1500
 extra_nasty: 1
 glyph: D
@@ -6119,6 +6279,7 @@ wants_gold: 1
 wants_magic_items: 1
 weight: 4500
 ---
+_corpse: {}
 ac: 3
 alignment: 0
 always_hostile: 1
@@ -6128,7 +6289,6 @@ attacks:
     type: physical
 can_fly: 1
 color: white
-corpse: {}
 corpse_nutrition: 400
 follows_stair_users: 1
 glyph: E
@@ -6148,6 +6308,7 @@ sound: silent
 speed: 12
 weight: 900
 ---
+_corpse: {}
 ac: 2
 alignment: 0
 attacks:
@@ -6156,7 +6317,6 @@ attacks:
     type: physical
 can_fly: 1
 color: cyan
-corpse: {}
 glyph: E
 hitdice: 8
 is_genderless: 1
@@ -6179,6 +6339,7 @@ sound: silent
 speed: 36
 weight: 0
 ---
+_corpse: {}
 ac: 2
 alignment: 0
 attacks:
@@ -6191,7 +6352,6 @@ attacks:
 can_fly: 1
 cannot_pickup_items: 1
 color: yellow
-corpse: {}
 glyph: E
 hitdice: 8
 infravision_detectable: 1
@@ -6216,6 +6376,7 @@ sound: silent
 speed: 12
 weight: 0
 ---
+_corpse: {}
 ac: 2
 alignment: 0
 attacks:
@@ -6223,7 +6384,6 @@ attacks:
     mode: claw
     type: physical
 color: brown
-corpse: {}
 glyph: E
 has_thick_hide: 1
 hitdice: 8
@@ -6251,6 +6411,7 @@ sound: silent
 speed: 6
 weight: 2500
 ---
+_corpse: {}
 ac: 2
 alignment: 0
 attacks:
@@ -6259,7 +6420,6 @@ attacks:
     type: physical
 can_swim: 1
 color: blue
-corpse: {}
 glyph: E
 hitdice: 8
 is_amphibious: 1
@@ -6282,6 +6442,7 @@ sound: silent
 speed: 6
 weight: 2500
 ---
+_corpse: {}
 ac: 9
 alignment: 0
 always_hostile: 1
@@ -6291,7 +6452,6 @@ attacks:
     type: stick
 cannot_pickup_items: 1
 color: bright_green
-corpse: {}
 corpse_nutrition: 200
 glyph: F
 hitdice: 0
@@ -6312,6 +6472,9 @@ sound: silent
 speed: 1
 weight: 20
 ---
+_corpse:
+  cold: 1
+  poison: 1
 ac: 9
 alignment: 0
 always_hostile: 1
@@ -6321,9 +6484,6 @@ attacks:
     type: cold
 cannot_pickup_items: 1
 color: brown
-corpse:
-  cold: 1
-  poison: 1
 corpse_nutrition: 30
 glyph: F
 hitdice: 1
@@ -6346,6 +6506,8 @@ sound: silent
 speed: 0
 weight: 50
 ---
+_corpse:
+  poison: 1
 ac: 9
 alignment: 0
 always_hostile: 1
@@ -6355,8 +6517,6 @@ attacks:
     type: stun
 cannot_pickup_items: 1
 color: yellow
-corpse:
-  poison: 1
 corpse_nutrition: 30
 glyph: F
 hitdice: 1
@@ -6379,6 +6539,8 @@ sound: silent
 speed: 0
 weight: 50
 ---
+_corpse:
+  stone: 1
 ac: 9
 acidic_corpse: 1
 alignment: 0
@@ -6389,8 +6551,6 @@ attacks:
     type: acid
 cannot_pickup_items: 1
 color: green
-corpse:
-  stone: 1
 corpse_nutrition: 30
 glyph: F
 hitdice: 1
@@ -6413,6 +6573,9 @@ sound: silent
 speed: 0
 weight: 50
 ---
+_corpse:
+  fire: 1
+  poison: 1
 ac: 9
 alignment: 0
 always_hostile: 1
@@ -6422,9 +6585,6 @@ attacks:
     type: fire
 cannot_pickup_items: 1
 color: red
-corpse:
-  fire: 1
-  poison: 1
 corpse_nutrition: 30
 glyph: F
 hitdice: 1
@@ -6448,14 +6608,14 @@ sound: silent
 speed: 0
 weight: 50
 ---
+_corpse:
+  poison: 1
 ac: 7
 alignment: 0
 always_hostile: 1
 attacks: []
 cannot_pickup_items: 1
 color: magenta
-corpse:
-  poison: 1
 corpse_nutrition: 100
 glyph: F
 hitdice: 3
@@ -6477,6 +6637,8 @@ sound: shriek
 speed: 1
 weight: 100
 ---
+_corpse:
+  poison: 1
 ac: 7
 alignment: 0
 always_hostile: 1
@@ -6489,8 +6651,6 @@ attacks:
     type: stick
 cannot_pickup_items: 1
 color: magenta
-corpse:
-  poison: 1
 corpse_nutrition: 100
 glyph: F
 hitdice: 3
@@ -6512,6 +6672,7 @@ sound: silent
 speed: 1
 weight: 100
 ---
+_corpse: {}
 ac: 10
 alignment: 0
 attacks:
@@ -6519,7 +6680,6 @@ attacks:
     mode: weapon
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 100
 glyph: G
 has_infravision: 1
@@ -6542,6 +6702,7 @@ speed: 6
 wants_wargear: 1
 weight: 650
 ---
+_corpse: {}
 ac: 10
 alignment: 0
 attacks:
@@ -6549,7 +6710,6 @@ attacks:
     mode: weapon
     type: physical
 color: blue
-corpse: {}
 corpse_nutrition: 120
 glyph: G
 has_infravision: 1
@@ -6572,6 +6732,7 @@ speed: 8
 wants_wargear: 1
 weight: 700
 ---
+_corpse: {}
 ac: 4
 alignment: 0
 attacks:
@@ -6579,7 +6740,6 @@ attacks:
     mode: magic
     type: wizardspell
 color: bright_blue
-corpse: {}
 corpse_nutrition: 120
 glyph: G
 has_infravision: 1
@@ -6600,6 +6760,7 @@ speed: 10
 wants_magic_items: 1
 weight: 700
 ---
+_corpse: {}
 ac: 10
 alignment: 0
 attacks:
@@ -6607,7 +6768,6 @@ attacks:
     mode: weapon
     type: physical
 color: magenta
-corpse: {}
 corpse_nutrition: 150
 glyph: G
 has_infravision: 1
@@ -6630,6 +6790,7 @@ speed: 10
 wants_wargear: 1
 weight: 750
 ---
+_corpse: {}
 ac: 0
 alignment: 2
 attacks:
@@ -6637,7 +6798,6 @@ attacks:
     mode: weapon
     type: physical
 color: red
-corpse: {}
 corpse_nutrition: 750
 extra_nasty: 1
 glyph: H
@@ -6662,6 +6822,7 @@ wants_gems: 1
 wants_wargear: 1
 weight: 2250
 ---
+_corpse: {}
 ac: 0
 alignment: 2
 attacks:
@@ -6669,7 +6830,6 @@ attacks:
     mode: weapon
     type: physical
 color: gray
-corpse: {}
 corpse_nutrition: 750
 extra_nasty: 1
 glyph: H
@@ -6694,6 +6854,7 @@ wants_gems: 1
 wants_wargear: 1
 weight: 2250
 ---
+_corpse: {}
 ac: 6
 alignment: -2
 attacks:
@@ -6701,7 +6862,6 @@ attacks:
     mode: weapon
     type: physical
 color: cyan
-corpse: {}
 corpse_nutrition: 700
 extra_nasty: 1
 glyph: H
@@ -6726,6 +6886,8 @@ wants_gems: 1
 wants_wargear: 1
 weight: 2200
 ---
+_corpse:
+  fire: 1
 ac: 4
 alignment: 2
 attacks:
@@ -6733,8 +6895,6 @@ attacks:
     mode: weapon
     type: physical
 color: yellow
-corpse:
-  fire: 1
 corpse_nutrition: 750
 extra_nasty: 1
 glyph: H
@@ -6760,6 +6920,8 @@ wants_gems: 1
 wants_wargear: 1
 weight: 2250
 ---
+_corpse:
+  cold: 1
 absent_from_gehennom: 1
 ac: 3
 alignment: -3
@@ -6768,8 +6930,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse:
-  cold: 1
 corpse_nutrition: 750
 extra_nasty: 1
 glyph: H
@@ -6795,6 +6955,8 @@ wants_gems: 1
 wants_wargear: 1
 weight: 2250
 ---
+_corpse:
+  elec: 1
 ac: 3
 alignment: -3
 attacks:
@@ -6802,8 +6964,6 @@ attacks:
     mode: weapon
     type: physical
 color: blue
-corpse:
-  elec: 1
 corpse_nutrition: 750
 extra_nasty: 1
 glyph: H
@@ -6829,6 +6989,7 @@ wants_gems: 1
 wants_wargear: 1
 weight: 2250
 ---
+_corpse: {}
 ac: 3
 alignment: 0
 always_hostile: 1
@@ -6840,7 +7001,6 @@ attacks:
     mode: weapon
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 500
 extra_nasty: 1
 glyph: H
@@ -6862,6 +7022,7 @@ speed: 12
 wants_wargear: 1
 weight: 1700
 ---
+_corpse: {}
 ac: -3
 alignment: 9
 attacks:
@@ -6873,7 +7034,6 @@ attacks:
     type: wizardspell
 can_fly: 1
 color: magenta
-corpse: {}
 corpse_nutrition: 900
 extra_nasty: 1
 glyph: H
@@ -6896,6 +7056,7 @@ wants_magic_items: 1
 wants_wargear: 1
 weight: 2300
 ---
+_corpse: {}
 ac: 6
 alignment: 0
 always_hostile: 1
@@ -6910,7 +7071,6 @@ attacks:
     mode: headbutt
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 700
 extra_nasty: 1
 glyph: H
@@ -6931,6 +7091,7 @@ sound: silent
 speed: 15
 weight: 1500
 ---
+_corpse: {}
 ac: -2
 alignment: 0
 always_hostile: 1
@@ -6949,7 +7110,6 @@ attacks:
     type: physical
 can_fly: 1
 color: orange
-corpse: {}
 corpse_nutrition: 600
 extra_nasty: 1
 glyph: J
@@ -6969,6 +7129,7 @@ speed: 12
 wants_wargear: 1
 weight: 1300
 ---
+_corpse: {}
 ac: 10
 alignment: 9
 always_hostile: 1
@@ -6977,7 +7138,6 @@ attacks:
     mode: weapon
     type: physical
 color: blue
-corpse: {}
 corpse_nutrition: 200
 glyph: K
 hitdice: 1
@@ -6998,6 +7158,7 @@ speed: 6
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 10
 always_hostile: 1
@@ -7006,7 +7167,6 @@ attacks:
     mode: weapon
     type: physical
 color: blue
-corpse: {}
 corpse_nutrition: 200
 glyph: K
 hitdice: 2
@@ -7028,6 +7188,7 @@ speed: 8
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 11
 always_hostile: 1
@@ -7036,7 +7197,6 @@ attacks:
     mode: weapon
     type: physical
 color: cyan
-corpse: {}
 corpse_nutrition: 200
 glyph: K
 hitdice: 3
@@ -7057,6 +7217,7 @@ speed: 10
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 12
 always_hostile: 1
@@ -7065,7 +7226,6 @@ attacks:
     mode: weapon
     type: physical
 color: magenta
-corpse: {}
 corpse_nutrition: 200
 glyph: K
 hitdice: 4
@@ -7086,6 +7246,8 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse:
+  cold: 1
 ac: 0
 alignment: -9
 always_hostile: 1
@@ -7097,8 +7259,6 @@ attacks:
     mode: magic
     type: wizardspell
 color: brown
-corpse:
-  cold: 1
 corpse_nutrition: 100
 glyph: L
 has_infravision: 1
@@ -7124,6 +7284,8 @@ speed: 6
 wants_magic_items: 1
 weight: 1200
 ---
+_corpse:
+  cold: 1
 ac: -2
 alignment: -12
 always_hostile: 1
@@ -7135,8 +7297,6 @@ attacks:
     mode: magic
     type: wizardspell
 color: red
-corpse:
-  cold: 1
 corpse_nutrition: 100
 glyph: L
 has_infravision: 1
@@ -7162,6 +7322,9 @@ speed: 9
 wants_magic_items: 1
 weight: 1200
 ---
+_corpse:
+  cold: 1
+  fire: 1
 ac: -4
 alignment: -15
 always_hostile: 1
@@ -7173,9 +7336,6 @@ attacks:
     mode: magic
     type: wizardspell
 color: magenta
-corpse:
-  cold: 1
-  fire: 1
 corpse_nutrition: 100
 gehennom_exclusive: 1
 glyph: L
@@ -7204,6 +7364,9 @@ wants_book: 1
 wants_magic_items: 1
 weight: 1200
 ---
+_corpse:
+  cold: 1
+  fire: 1
 ac: -6
 alignment: -15
 always_hostile: 1
@@ -7215,9 +7378,6 @@ attacks:
     mode: magic
     type: wizardspell
 color: magenta
-corpse:
-  cold: 1
-  fire: 1
 corpse_nutrition: 100
 gehennom_exclusive: 1
 glyph: L
@@ -7247,6 +7407,7 @@ wants_book: 1
 wants_magic_items: 1
 weight: 1200
 ---
+_corpse: {}
 ac: 6
 alignment: -2
 always_hostile: 1
@@ -7255,7 +7416,6 @@ attacks:
     mode: claw
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 50
 glyph: M
 has_infravision: 1
@@ -7280,6 +7440,7 @@ sound: silent
 speed: 8
 weight: 400
 ---
+_corpse: {}
 ac: 6
 alignment: -3
 always_hostile: 1
@@ -7288,7 +7449,6 @@ attacks:
     mode: claw
     type: physical
 color: red
-corpse: {}
 corpse_nutrition: 50
 glyph: M
 has_infravision: 1
@@ -7314,6 +7474,7 @@ sound: silent
 speed: 10
 weight: 650
 ---
+_corpse: {}
 ac: 5
 alignment: -4
 always_hostile: 1
@@ -7322,7 +7483,6 @@ attacks:
     mode: claw
     type: physical
 color: gray
-corpse: {}
 corpse_nutrition: 75
 glyph: M
 has_infravision: 1
@@ -7350,6 +7510,7 @@ wants_gems: 1
 wants_gold: 1
 weight: 850
 ---
+_corpse: {}
 ac: 5
 alignment: -4
 always_hostile: 1
@@ -7358,7 +7519,6 @@ attacks:
     mode: claw
     type: physical
 color: red
-corpse: {}
 corpse_nutrition: 150
 glyph: M
 has_infravision: 1
@@ -7386,6 +7546,7 @@ wants_gems: 1
 wants_gold: 1
 weight: 900
 ---
+_corpse: {}
 ac: 4
 alignment: -5
 always_hostile: 1
@@ -7394,7 +7555,6 @@ attacks:
     mode: claw
     type: physical
 color: green
-corpse: {}
 corpse_nutrition: 175
 glyph: M
 has_infravision: 1
@@ -7420,6 +7580,7 @@ sound: silent
 speed: 12
 weight: 800
 ---
+_corpse: {}
 ac: 4
 alignment: -5
 always_hostile: 1
@@ -7431,7 +7592,6 @@ attacks:
     mode: claw
     type: physical
 color: gray
-corpse: {}
 corpse_nutrition: 200
 glyph: M
 has_infravision: 1
@@ -7456,6 +7616,7 @@ sound: silent
 speed: 12
 weight: 1450
 ---
+_corpse: {}
 ac: 4
 alignment: -6
 always_hostile: 1
@@ -7467,7 +7628,6 @@ attacks:
     mode: claw
     type: physical
 color: blue
-corpse: {}
 corpse_nutrition: 250
 glyph: M
 has_infravision: 1
@@ -7493,6 +7653,7 @@ sound: silent
 speed: 12
 weight: 1700
 ---
+_corpse: {}
 ac: 3
 alignment: -7
 always_hostile: 1
@@ -7504,7 +7665,6 @@ attacks:
     mode: claw
     type: physical
 color: cyan
-corpse: {}
 corpse_nutrition: 375
 glyph: M
 has_infravision: 1
@@ -7532,6 +7692,9 @@ speed: 14
 wants_gems: 1
 weight: 2050
 ---
+_corpse:
+  fire: 1
+  poison: 1
 ac: 6
 alignment: 0
 attacks:
@@ -7540,9 +7703,6 @@ attacks:
     type: physical
 cannot_pickup_items: 1
 color: red
-corpse:
-  fire: 1
-  poison: 1
 corpse_nutrition: 100
 glyph: N
 has_thick_hide: 1
@@ -7564,6 +7724,9 @@ sound: mumble
 speed: 10
 weight: 500
 ---
+_corpse:
+  poison: 1
+  stone: 1
 ac: 6
 acidic_corpse: 1
 alignment: 0
@@ -7573,9 +7736,6 @@ attacks:
     type: physical
 cannot_pickup_items: 1
 color: black
-corpse:
-  poison: 1
-  stone: 1
 corpse_nutrition: 100
 glyph: N
 has_thick_hide: 1
@@ -7596,6 +7756,8 @@ sound: mumble
 speed: 10
 weight: 500
 ---
+_corpse:
+  poison: 1
 ac: 6
 alignment: 0
 attacks:
@@ -7604,8 +7766,6 @@ attacks:
     type: physical
 cannot_pickup_items: 1
 color: yellow
-corpse:
-  poison: 1
 corpse_nutrition: 100
 glyph: N
 has_thick_hide: 1
@@ -7625,6 +7785,8 @@ sound: mumble
 speed: 10
 weight: 500
 ---
+_corpse:
+  poison: 1
 ac: 6
 alignment: 0
 attacks:
@@ -7633,8 +7795,6 @@ attacks:
     type: physical
 cannot_pickup_items: 1
 color: green
-corpse:
-  poison: 1
 corpse_nutrition: 100
 glyph: N
 has_thick_hide: 1
@@ -7654,6 +7814,9 @@ sound: mumble
 speed: 10
 weight: 500
 ---
+_corpse:
+  fire: 1
+  poison: 1
 ac: 4
 alignment: -4
 attacks:
@@ -7665,9 +7828,6 @@ attacks:
     type: fire
 cannot_pickup_items: 1
 color: red
-corpse:
-  fire: 1
-  poison: 1
 corpse_nutrition: 400
 glyph: N
 has_thick_hide: 1
@@ -7691,6 +7851,9 @@ sound: mumble
 speed: 12
 weight: 2600
 ---
+_corpse:
+  poison: 1
+  stone: 1
 ac: 2
 acidic_corpse: 1
 alignment: 4
@@ -7703,9 +7866,6 @@ attacks:
     type: acid
 cannot_pickup_items: 1
 color: black
-corpse:
-  poison: 1
-  stone: 1
 corpse_nutrition: 400
 glyph: N
 has_thick_hide: 1
@@ -7728,6 +7888,8 @@ sound: mumble
 speed: 14
 weight: 2600
 ---
+_corpse:
+  poison: 1
 ac: 2
 alignment: 5
 attacks:
@@ -7739,8 +7901,6 @@ attacks:
     type: wizardspell
 cannot_pickup_items: 1
 color: yellow
-corpse:
-  poison: 1
 corpse_nutrition: 400
 glyph: N
 has_thick_hide: 1
@@ -7762,6 +7922,8 @@ sound: mumble
 speed: 14
 weight: 2600
 ---
+_corpse:
+  poison: 1
 ac: 0
 alignment: 7
 attacks:
@@ -7776,8 +7938,6 @@ attacks:
     type: physical
 cannot_pickup_items: 1
 color: green
-corpse:
-  poison: 1
 corpse_nutrition: 400
 glyph: N
 has_thick_hide: 1
@@ -7800,6 +7960,7 @@ sound: mumble
 speed: 16
 weight: 2600
 ---
+_corpse: {}
 ac: 5
 alignment: -3
 attacks:
@@ -7807,7 +7968,6 @@ attacks:
     mode: weapon
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 500
 glyph: O
 has_infravision: 1
@@ -7830,6 +7990,7 @@ wants_gold: 1
 wants_wargear: 1
 weight: 1600
 ---
+_corpse: {}
 ac: 3
 alignment: -5
 attacks:
@@ -7837,7 +7998,6 @@ attacks:
     mode: weapon
     type: physical
 color: red
-corpse: {}
 corpse_nutrition: 700
 glyph: O
 has_infravision: 1
@@ -7861,6 +8021,7 @@ wants_gold: 1
 wants_wargear: 1
 weight: 1700
 ---
+_corpse: {}
 ac: 4
 alignment: -7
 attacks:
@@ -7868,7 +8029,6 @@ attacks:
     mode: weapon
     type: physical
 color: magenta
-corpse: {}
 corpse_nutrition: 750
 glyph: O
 has_infravision: 1
@@ -7892,6 +8052,10 @@ wants_gold: 1
 wants_wargear: 1
 weight: 1700
 ---
+_corpse:
+  cold: 1
+  fire: 1
+  poison: 1
 ac: 8
 acidic_corpse: 1
 alignment: 0
@@ -7901,10 +8065,6 @@ attacks:
     mode: bite
     type: rust
 color: gray
-corpse:
-  cold: 1
-  fire: 1
-  poison: 1
 corpse_nutrition: 250
 glyph: P
 hitdice: 3
@@ -7933,6 +8093,10 @@ sound: silent
 speed: 1
 weight: 500
 ---
+_corpse:
+  cold: 1
+  elec: 1
+  poison: 1
 ac: 8
 acidic_corpse: 1
 alignment: 0
@@ -7942,10 +8106,6 @@ attacks:
     mode: bite
     type: decay
 color: brown
-corpse:
-  cold: 1
-  elec: 1
-  poison: 1
 corpse_nutrition: 250
 glyph: P
 hitdice: 5
@@ -7974,6 +8134,10 @@ sound: silent
 speed: 3
 weight: 500
 ---
+_corpse:
+  cold: 1
+  elec: 1
+  poison: 1
 ac: 6
 acidic_corpse: 1
 alignment: 0
@@ -7986,10 +8150,6 @@ attacks:
     mode: passive
     type: corrode
 color: black
-corpse:
-  cold: 1
-  elec: 1
-  poison: 1
 corpse_nutrition: 250
 glyph: P
 hitdice: 10
@@ -8018,6 +8178,7 @@ sound: silent
 speed: 6
 weight: 900
 ---
+_corpse: {}
 ac: 6
 acidic_corpse: 1
 alignment: 0
@@ -8030,7 +8191,6 @@ attacks:
     mode: passive
     type: slime
 color: green
-corpse: {}
 corpse_nutrition: 150
 gehennom_exclusive: 1
 glyph: P
@@ -8061,6 +8221,7 @@ sound: silent
 speed: 6
 weight: 400
 ---
+_corpse: {}
 ac: 3
 alignment: 0
 always_hostile: 1
@@ -8069,7 +8230,6 @@ attacks:
     mode: claw
     type: teleport
 color: cyan
-corpse: {}
 corpse_nutrition: 20
 glyph: Q
 has_teleportitis: 1
@@ -8090,6 +8250,7 @@ sound: humanoid
 speed: 12
 weight: 1450
 ---
+_corpse: {}
 ac: 2
 alignment: 0
 always_hostile: 1
@@ -8106,7 +8267,6 @@ attacks:
 can_eat_metal: 1
 can_swim: 1
 color: brown
-corpse: {}
 corpse_nutrition: 250
 glyph: R
 hitdice: 5
@@ -8123,6 +8283,7 @@ sound: silent
 speed: 18
 weight: 1000
 ---
+_corpse: {}
 ac: -10
 alignment: -3
 always_hostile: 1
@@ -8134,7 +8295,6 @@ attacks:
     mode: passive
     type: disenchant
 color: blue
-corpse: {}
 corpse_nutrition: 200
 gehennom_exclusive: 1
 glyph: R
@@ -8152,6 +8312,7 @@ sound: growl
 speed: 12
 weight: 750
 ---
+_corpse: {}
 ac: 8
 alignment: 0
 attacks:
@@ -8161,7 +8322,6 @@ attacks:
 can_swim: 1
 cannot_pickup_items: 1
 color: green
-corpse: {}
 corpse_nutrition: 60
 glyph: S
 hides_under_item: 1
@@ -8182,6 +8342,8 @@ sound: hiss
 speed: 8
 weight: 50
 ---
+_corpse:
+  poison: 1
 ac: 3
 alignment: 0
 always_hostile: 1
@@ -8192,8 +8354,6 @@ attacks:
 can_swim: 1
 cannot_pickup_items: 1
 color: brown
-corpse:
-  poison: 1
 corpse_nutrition: 80
 glyph: S
 hides_under_item: 1
@@ -8215,6 +8375,8 @@ sound: hiss
 speed: 15
 weight: 100
 ---
+_corpse:
+  poison: 1
 ac: 3
 alignment: 0
 always_hostile: 1
@@ -8225,8 +8387,6 @@ attacks:
 can_swim: 1
 cannot_pickup_items: 1
 color: red
-corpse:
-  poison: 1
 corpse_nutrition: 80
 glyph: S
 hides_under_item: 1
@@ -8249,6 +8409,8 @@ sound: hiss
 speed: 15
 weight: 150
 ---
+_corpse:
+  poison: 1
 ac: 2
 alignment: 0
 always_hostile: 1
@@ -8262,8 +8424,6 @@ attacks:
 can_swim: 1
 cannot_pickup_items: 1
 color: blue
-corpse:
-  poison: 1
 corpse_nutrition: 60
 glyph: S
 has_infravision: 1
@@ -8286,6 +8446,7 @@ sound: hiss
 speed: 15
 weight: 100
 ---
+_corpse: {}
 ac: 5
 alignment: 0
 always_hostile: 1
@@ -8305,7 +8466,6 @@ attacks:
 can_swim: 1
 cannot_pickup_items: 1
 color: magenta
-corpse: {}
 corpse_nutrition: 100
 glyph: S
 has_infravision: 1
@@ -8326,6 +8486,8 @@ sound: hiss
 speed: 3
 weight: 250
 ---
+_corpse:
+  poison: 1
 ac: 2
 alignment: 0
 always_hostile: 1
@@ -8339,8 +8501,6 @@ attacks:
 can_swim: 1
 cannot_pickup_items: 1
 color: blue
-corpse:
-  poison: 1
 corpse_nutrition: 100
 glyph: S
 hides_under_item: 1
@@ -8362,6 +8522,7 @@ sound: hiss
 speed: 18
 weight: 250
 ---
+_corpse: {}
 ac: 4
 alignment: -3
 always_hostile: 1
@@ -8376,7 +8537,6 @@ attacks:
     mode: bite
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 350
 follows_stair_users: 1
 glyph: T
@@ -8398,6 +8558,8 @@ speed: 12
 wants_wargear: 1
 weight: 800
 ---
+_corpse:
+  cold: 1
 absent_from_gehennom: 1
 ac: 2
 alignment: -3
@@ -8413,8 +8575,6 @@ attacks:
     mode: bite
     type: physical
 color: white
-corpse:
-  cold: 1
 corpse_nutrition: 300
 follows_stair_users: 1
 glyph: T
@@ -8437,6 +8597,7 @@ speed: 10
 wants_wargear: 1
 weight: 1000
 ---
+_corpse: {}
 ac: 0
 alignment: -3
 always_hostile: 1
@@ -8451,7 +8612,6 @@ attacks:
     mode: bite
     type: physical
 color: cyan
-corpse: {}
 corpse_nutrition: 300
 follows_stair_users: 1
 glyph: T
@@ -8473,6 +8633,7 @@ speed: 12
 wants_wargear: 1
 weight: 1200
 ---
+_corpse: {}
 ac: 4
 alignment: -3
 always_hostile: 1
@@ -8488,7 +8649,6 @@ attacks:
     type: physical
 can_swim: 1
 color: blue
-corpse: {}
 corpse_nutrition: 350
 follows_stair_users: 1
 glyph: T
@@ -8510,6 +8670,7 @@ speed: 14
 wants_wargear: 1
 weight: 1200
 ---
+_corpse: {}
 ac: -4
 alignment: -7
 always_hostile: 1
@@ -8524,7 +8685,6 @@ attacks:
     mode: bite
     type: physical
 color: magenta
-corpse: {}
 corpse_nutrition: 400
 follows_stair_users: 1
 glyph: T
@@ -8546,6 +8706,7 @@ speed: 12
 wants_wargear: 1
 weight: 1500
 ---
+_corpse: {}
 ac: 2
 alignment: 0
 attacks:
@@ -8563,7 +8724,6 @@ attacks:
     type: conf
 can_eat_rock: 1
 color: brown
-corpse: {}
 corpse_nutrition: 500
 glyph: U
 hitdice: 9
@@ -8580,6 +8740,7 @@ sound: silent
 speed: 6
 weight: 1200
 ---
+_corpse: {}
 ac: 1
 alignment: -8
 always_hostile: 1
@@ -8592,7 +8753,6 @@ attacks:
     type: drain
 can_fly: 1
 color: red
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -8619,6 +8779,7 @@ sound: vampire
 speed: 12
 weight: 1450
 ---
+_corpse: {}
 ac: 0
 alignment: -9
 always_hostile: 1
@@ -8631,7 +8792,6 @@ attacks:
     type: drain
 can_fly: 1
 color: blue
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -8660,6 +8820,7 @@ sound: vampire
 speed: 14
 weight: 1450
 ---
+_corpse: {}
 ac: -3
 alignment: -10
 always_hostile: 1
@@ -8672,7 +8833,6 @@ attacks:
     type: drain
 can_fly: 1
 color: magenta
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -8706,6 +8866,7 @@ wants_candelabrum: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 5
 alignment: -3
 always_hostile: 1
@@ -8720,7 +8881,6 @@ attacks:
     mode: claw
     type: physical
 color: gray
-corpse: {}
 follows_stair_users: 1
 glyph: W
 hitdice: 3
@@ -8744,6 +8904,7 @@ speed: 12
 wants_wargear: 1
 weight: 1200
 ---
+_corpse: {}
 ac: 4
 alignment: -6
 always_hostile: 1
@@ -8753,7 +8914,6 @@ attacks:
     type: drain
 can_fly: 1
 color: black
-corpse: {}
 follows_stair_users: 1
 glyph: W
 hitdice: 6
@@ -8777,6 +8937,7 @@ sound: silent
 speed: 12
 weight: 0
 ---
+_corpse: {}
 ac: 0
 alignment: -17
 always_hostile: 1
@@ -8788,7 +8949,6 @@ attacks:
     mode: breathe
     type: sleep
 color: magenta
-corpse: {}
 follows_stair_users: 1
 glyph: W
 hitdice: 13
@@ -8815,6 +8975,8 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse:
+  stone: 1
 ac: -2
 alignment: 0
 always_hostile: 1
@@ -8833,8 +8995,6 @@ attacks:
     type: physical
 can_eat_metal: 1
 color: brown
-corpse:
-  stone: 1
 corpse_nutrition: 700
 glyph: X
 has_thick_hide: 1
@@ -8856,6 +9016,7 @@ sound: roar
 speed: 9
 weight: 1200
 ---
+_corpse: {}
 ac: 6
 alignment: 0
 attacks:
@@ -8866,7 +9027,6 @@ attacks:
     mode: bite
     type: physical
 color: gray
-corpse: {}
 corpse_nutrition: 50
 glyph: Y
 hitdice: 2
@@ -8884,6 +9044,7 @@ sound: growl
 speed: 12
 weight: 100
 ---
+_corpse: {}
 ac: 6
 alignment: 0
 attacks:
@@ -8897,7 +9058,6 @@ attacks:
     mode: bite
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 500
 glyph: Y
 hitdice: 4
@@ -8917,6 +9077,7 @@ sound: growl
 speed: 12
 weight: 1100
 ---
+_corpse: {}
 ac: 5
 alignment: 0
 always_hostile: 1
@@ -8931,7 +9092,6 @@ attacks:
     mode: crush
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 700
 extra_nasty: 1
 glyph: Y
@@ -8951,6 +9111,8 @@ sound: roar
 speed: 12
 weight: 1700
 ---
+_corpse:
+  cold: 1
 ac: 6
 alignment: 0
 always_hostile: 1
@@ -8965,8 +9127,6 @@ attacks:
     mode: bite
     type: physical
 color: white
-corpse:
-  cold: 1
 corpse_nutrition: 700
 glyph: Y
 hitdice: 5
@@ -8986,6 +9146,7 @@ sound: growl
 speed: 15
 weight: 1600
 ---
+_corpse: {}
 ac: 6
 alignment: 0
 always_hostile: 1
@@ -9000,7 +9161,6 @@ attacks:
     mode: crush
     type: physical
 color: black
-corpse: {}
 corpse_nutrition: 550
 glyph: Y
 hitdice: 6
@@ -9019,6 +9179,7 @@ sound: growl
 speed: 12
 weight: 1250
 ---
+_corpse: {}
 ac: 6
 alignment: 2
 attacks:
@@ -9032,7 +9193,6 @@ attacks:
     mode: kick
     type: physical
 color: gray
-corpse: {}
 corpse_nutrition: 750
 glyph: Y
 hitdice: 7
@@ -9053,6 +9213,7 @@ sound: growl
 speed: 15
 weight: 1550
 ---
+_corpse: {}
 ac: 10
 alignment: -2
 always_hostile: 1
@@ -9061,7 +9222,6 @@ attacks:
     mode: claw
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 50
 follows_stair_users: 1
 glyph: Z
@@ -9087,6 +9247,7 @@ sound: silent
 speed: 6
 weight: 400
 ---
+_corpse: {}
 ac: 10
 alignment: -2
 always_hostile: 1
@@ -9095,7 +9256,6 @@ attacks:
     mode: claw
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 50
 follows_stair_users: 1
 glyph: Z
@@ -9122,6 +9282,7 @@ sound: silent
 speed: 6
 weight: 650
 ---
+_corpse: {}
 ac: 9
 alignment: -3
 always_hostile: 1
@@ -9130,7 +9291,6 @@ attacks:
     mode: claw
     type: physical
 color: gray
-corpse: {}
 corpse_nutrition: 75
 follows_stair_users: 1
 glyph: Z
@@ -9158,6 +9318,7 @@ sound: silent
 speed: 6
 weight: 850
 ---
+_corpse: {}
 ac: 9
 alignment: -3
 always_hostile: 1
@@ -9166,7 +9327,6 @@ attacks:
     mode: claw
     type: physical
 color: red
-corpse: {}
 corpse_nutrition: 150
 follows_stair_users: 1
 glyph: Z
@@ -9194,6 +9354,7 @@ sound: silent
 speed: 6
 weight: 900
 ---
+_corpse: {}
 ac: 9
 alignment: -3
 always_hostile: 1
@@ -9202,7 +9363,6 @@ attacks:
     mode: claw
     type: physical
 color: green
-corpse: {}
 corpse_nutrition: 175
 follows_stair_users: 1
 glyph: Z
@@ -9229,6 +9389,7 @@ sound: silent
 speed: 6
 weight: 800
 ---
+_corpse: {}
 ac: 8
 alignment: -3
 always_hostile: 1
@@ -9237,7 +9398,6 @@ attacks:
     mode: claw
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 200
 follows_stair_users: 1
 glyph: Z
@@ -9263,6 +9423,7 @@ sound: silent
 speed: 6
 weight: 1450
 ---
+_corpse: {}
 ac: 6
 alignment: -4
 always_hostile: 1
@@ -9274,7 +9435,6 @@ attacks:
     mode: claw
     type: physical
 color: blue
-corpse: {}
 corpse_nutrition: 250
 follows_stair_users: 1
 glyph: Z
@@ -9300,6 +9460,7 @@ sound: silent
 speed: 8
 weight: 1700
 ---
+_corpse: {}
 ac: 6
 alignment: -4
 always_hostile: 1
@@ -9311,7 +9472,6 @@ attacks:
     mode: claw
     type: physical
 color: cyan
-corpse: {}
 corpse_nutrition: 375
 follows_stair_users: 1
 glyph: Z
@@ -9338,6 +9498,7 @@ sound: silent
 speed: 8
 weight: 2050
 ---
+_corpse: {}
 ac: 10
 alignment: -2
 always_hostile: 1
@@ -9349,7 +9510,6 @@ attacks:
     mode: claw
     type: physical
 color: black
-corpse: {}
 corpse_nutrition: 50
 glyph: Z
 has_infravision: 1
@@ -9375,6 +9535,7 @@ sound: silent
 speed: 6
 weight: 400
 ---
+_corpse: {}
 ac: 4
 alignment: 0
 always_hostile: 1
@@ -9386,7 +9547,6 @@ attacks:
     mode: touch
     type: slow
 color: white
-corpse: {}
 corpse_nutrition: 5
 extra_nasty: 1
 glyph: Z
@@ -9415,6 +9575,7 @@ speed: 8
 wants_wargear: 1
 weight: 300
 ---
+_corpse: {}
 ac: 10
 alignment: 0
 always_hostile: 1
@@ -9426,7 +9587,6 @@ attacks:
     mode: claw
     type: physical
 color: yellow
-corpse: {}
 glyph: "'"
 hitdice: 3
 humanoid_body: 1
@@ -9447,6 +9607,7 @@ sound: silent
 speed: 12
 weight: 400
 ---
+_corpse: {}
 ac: 10
 alignment: 0
 always_hostile: 1
@@ -9455,7 +9616,6 @@ attacks:
     mode: claw
     type: physical
 color: white
-corpse: {}
 glyph: "'"
 hitdice: 3
 humanoid_body: 1
@@ -9476,6 +9636,7 @@ sound: silent
 speed: 12
 weight: 400
 ---
+_corpse: {}
 ac: 8
 alignment: 0
 always_hostile: 1
@@ -9490,7 +9651,6 @@ attacks:
     mode: crush
     type: physical
 color: brown
-corpse: {}
 glyph: "'"
 hitdice: 4
 humanoid_body: 1
@@ -9511,6 +9671,7 @@ sound: silent
 speed: 9
 weight: 450
 ---
+_corpse: {}
 ac: 6
 alignment: 0
 always_hostile: 1
@@ -9522,7 +9683,6 @@ attacks:
     mode: claw
     type: physical
 color: yellow
-corpse: {}
 glyph: "'"
 has_thick_hide: 1
 hitdice: 5
@@ -9545,6 +9705,7 @@ sound: silent
 speed: 9
 weight: 450
 ---
+_corpse: {}
 ac: 6
 alignment: 0
 always_hostile: 1
@@ -9556,7 +9717,6 @@ attacks:
     mode: claw
     type: physical
 color: brown
-corpse: {}
 glyph: "'"
 hitdice: 6
 humanoid_body: 1
@@ -9577,6 +9737,7 @@ sound: silent
 speed: 6
 weight: 800
 ---
+_corpse: {}
 ac: 4
 alignment: 0
 always_hostile: 1
@@ -9585,7 +9746,6 @@ attacks:
     mode: claw
     type: physical
 color: brown
-corpse: {}
 glyph: "'"
 has_thick_hide: 1
 hitdice: 7
@@ -9607,6 +9767,12 @@ sound: silent
 speed: 3
 weight: 900
 ---
+_corpse:
+  cold: 1
+  elec: 1
+  fire: 1
+  poison: 1
+  sleep: 1
 ac: 9
 alignment: 0
 always_hostile: 1
@@ -9618,12 +9784,6 @@ attacks:
     mode: claw
     type: physical
 color: red
-corpse:
-  cold: 1
-  elec: 1
-  fire: 1
-  poison: 1
-  sleep: 1
 corpse_nutrition: 600
 glyph: "'"
 hitdice: 9
@@ -9646,6 +9806,7 @@ sound: silent
 speed: 8
 weight: 1400
 ---
+_corpse: {}
 ac: 7
 alignment: 0
 always_hostile: 1
@@ -9654,7 +9815,6 @@ attacks:
     mode: claw
     type: physical
 color: brown
-corpse: {}
 glyph: "'"
 has_thick_hide: 1
 hitdice: 11
@@ -9676,6 +9836,7 @@ sound: silent
 speed: 7
 weight: 1550
 ---
+_corpse: {}
 ac: 5
 alignment: 0
 always_hostile: 1
@@ -9684,7 +9845,6 @@ attacks:
     mode: claw
     type: physical
 color: gray
-corpse: {}
 glyph: "'"
 has_thick_hide: 1
 hitdice: 14
@@ -9707,6 +9867,7 @@ sound: silent
 speed: 6
 weight: 1900
 ---
+_corpse: {}
 ac: 1
 alignment: 0
 always_hostile: 1
@@ -9718,7 +9879,6 @@ attacks:
     mode: claw
     type: physical
 color: cyan
-corpse: {}
 glyph: "'"
 has_thick_hide: 1
 hitdice: 16
@@ -9741,6 +9901,7 @@ sound: silent
 speed: 6
 weight: 1800
 ---
+_corpse: {}
 ac: 3
 alignment: 0
 always_hostile: 1
@@ -9752,7 +9913,6 @@ attacks:
     mode: breathe
     type: poison
 color: cyan
-corpse: {}
 glyph: "'"
 has_thick_hide: 1
 hitdice: 18
@@ -9779,6 +9939,7 @@ speed: 6
 wants_wargear: 1
 weight: 2000
 ---
+_corpse: {}
 ac: 10
 alignment: 0
 attacks:
@@ -9786,7 +9947,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 0
@@ -9807,6 +9967,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: -7
 always_hostile: 1
@@ -9815,7 +9976,6 @@ attacks:
     mode: weapon
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 2
@@ -9839,6 +9999,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: -7
 always_hostile: 1
@@ -9847,7 +10008,6 @@ attacks:
     mode: weapon
     type: physical
 color: red
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 2
@@ -9871,6 +10031,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: -7
 always_hostile: 1
@@ -9879,7 +10040,6 @@ attacks:
     mode: weapon
     type: physical
 color: orange
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 5
@@ -9903,6 +10063,8 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse:
+  sleep: 1
 ac: 10
 alignment: -3
 attacks:
@@ -9910,8 +10072,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse:
-  sleep: 1
 corpse_nutrition: 350
 glyph: '@'
 has_infravision: 1
@@ -9935,6 +10095,8 @@ speed: 12
 wants_wargear: 1
 weight: 800
 ---
+_corpse:
+  sleep: 1
 ac: 10
 alignment: -5
 attacks:
@@ -9942,8 +10104,6 @@ attacks:
     mode: weapon
     type: physical
 color: green
-corpse:
-  sleep: 1
 corpse_nutrition: 350
 glyph: '@'
 has_infravision: 1
@@ -9967,6 +10127,8 @@ speed: 12
 wants_wargear: 1
 weight: 800
 ---
+_corpse:
+  sleep: 1
 ac: 10
 alignment: -6
 attacks:
@@ -9974,8 +10136,6 @@ attacks:
     mode: weapon
     type: physical
 color: bright_green
-corpse:
-  sleep: 1
 corpse_nutrition: 350
 glyph: '@'
 has_infravision: 1
@@ -9999,6 +10159,8 @@ speed: 12
 wants_wargear: 1
 weight: 800
 ---
+_corpse:
+  sleep: 1
 ac: 10
 alignment: -7
 attacks:
@@ -10006,8 +10168,6 @@ attacks:
     mode: weapon
     type: physical
 color: gray
-corpse:
-  sleep: 1
 corpse_nutrition: 350
 glyph: '@'
 has_infravision: 1
@@ -10031,6 +10191,8 @@ speed: 12
 wants_wargear: 1
 weight: 800
 ---
+_corpse:
+  sleep: 1
 ac: 10
 alignment: -9
 attacks:
@@ -10041,8 +10203,6 @@ attacks:
     mode: weapon
     type: physical
 color: bright_blue
-corpse:
-  sleep: 1
 corpse_nutrition: 350
 glyph: '@'
 has_infravision: 1
@@ -10069,6 +10229,8 @@ speed: 12
 wants_wargear: 1
 weight: 800
 ---
+_corpse:
+  sleep: 1
 ac: 10
 alignment: -10
 attacks:
@@ -10079,8 +10241,6 @@ attacks:
     mode: weapon
     type: physical
 color: magenta
-corpse:
-  sleep: 1
 corpse_nutrition: 350
 glyph: '@'
 has_infravision: 1
@@ -10106,6 +10266,7 @@ speed: 12
 wants_wargear: 1
 weight: 800
 ---
+_corpse: {}
 ac: 5
 alignment: 0
 always_hostile: 1
@@ -10114,7 +10275,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 9
@@ -10137,6 +10297,8 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse:
+  poison: 1
 ac: 0
 alignment: 0
 always_hostile: 1
@@ -10145,8 +10307,6 @@ attacks:
     mode: claw
     type: heal
 color: white
-corpse:
-  poison: 1
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 11
@@ -10167,6 +10327,7 @@ sound: nurse
 speed: 6
 weight: 1450
 ---
+_corpse: {}
 ac: 0
 alignment: 0
 always_peaceful: 1
@@ -10178,7 +10339,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 12
@@ -10200,6 +10360,7 @@ wants_magic_items: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 10
 always_peaceful: 1
@@ -10208,7 +10369,6 @@ attacks:
     mode: weapon
     type: physical
 color: blue
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 12
@@ -10230,6 +10390,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 0
 always_peaceful: 1
@@ -10238,7 +10399,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 12
@@ -10260,6 +10420,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 0
 alignment: 0
 always_peaceful: 1
@@ -10268,7 +10429,6 @@ attacks:
     mode: passive
     type: magicmissile
 color: bright_blue
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 12
@@ -10289,6 +10449,7 @@ sound: oracle
 speed: 0
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 0
 always_peaceful: 1
@@ -10303,7 +10464,6 @@ attacks:
     mode: magic
     type: clericalspell
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 12
@@ -10325,6 +10485,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 7
 alignment: 0
 attacks:
@@ -10341,7 +10502,6 @@ attacks:
     mode: magic
     type: clericalspell
 color: white
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 glyph: '@'
@@ -10371,6 +10531,7 @@ wants_magic_items: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: -2
 always_hostile: 1
@@ -10379,7 +10540,6 @@ attacks:
     mode: weapon
     type: physical
 color: gray
-corpse: {}
 corpse_nutrition: 400
 follows_stair_users: 1
 glyph: '@'
@@ -10404,6 +10564,7 @@ speed: 10
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: -3
 always_hostile: 1
@@ -10412,7 +10573,6 @@ attacks:
     mode: weapon
     type: physical
 color: red
-corpse: {}
 corpse_nutrition: 400
 follows_stair_users: 1
 glyph: '@'
@@ -10437,6 +10597,7 @@ speed: 10
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: -4
 always_hostile: 1
@@ -10448,7 +10609,6 @@ attacks:
     mode: weapon
     type: physical
 color: green
-corpse: {}
 corpse_nutrition: 400
 follows_stair_users: 1
 glyph: '@'
@@ -10472,6 +10632,7 @@ speed: 10
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: -5
 always_hostile: 1
@@ -10483,7 +10644,6 @@ attacks:
     mode: weapon
     type: physical
 color: blue
-corpse: {}
 corpse_nutrition: 400
 follows_stair_users: 1
 glyph: '@'
@@ -10507,6 +10667,7 @@ speed: 10
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: -2
 always_peaceful: 1
@@ -10515,7 +10676,6 @@ attacks:
     mode: weapon
     type: physical
 color: gray
-corpse: {}
 corpse_nutrition: 400
 follows_stair_users: 1
 glyph: '@'
@@ -10541,6 +10701,7 @@ speed: 10
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: -4
 always_peaceful: 1
@@ -10552,7 +10713,6 @@ attacks:
     mode: weapon
     type: physical
 color: green
-corpse: {}
 corpse_nutrition: 400
 follows_stair_users: 1
 glyph: '@'
@@ -10577,6 +10737,9 @@ speed: 10
 wants_wargear: 1
 weight: 1450
 ---
+_corpse:
+  poison: 1
+  stone: 1
 ac: 2
 alignment: -15
 always_hostile: 1
@@ -10596,9 +10759,6 @@ attacks:
 can_fly: 1
 can_swim: 1
 color: bright_green
-corpse:
-  poison: 1
-  stone: 1
 corpse_nutrition: 400
 glyph: '@'
 has_proper_name: 1
@@ -10626,6 +10786,9 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse:
+  fire: 1
+  poison: 1
 ac: -8
 alignment: none
 always_hostile: 1
@@ -10638,9 +10801,6 @@ attacks:
     type: wizardspell
 can_fly: 1
 color: magenta
-corpse:
-  fire: 1
-  poison: 1
 corpse_nutrition: 400
 extra_nasty: 1
 glyph: '@'
@@ -10679,6 +10839,7 @@ wants_magic_items: 1
 wants_quest_artifact: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 0
 alignment: 15
 always_hostile: 1
@@ -10687,7 +10848,6 @@ attacks:
     mode: weapon
     type: physical
 color: magenta
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -10718,6 +10878,7 @@ wants_magic_items: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: -5
 alignment: -5
 always_hostile: 1
@@ -10727,7 +10888,6 @@ attacks:
     type: physical
 can_fly: 1
 color: gray
-corpse: {}
 follows_stair_users: 1
 glyph: X
 has_infravision: 1
@@ -10755,6 +10915,7 @@ sound: silent
 speed: 3
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 0
 always_hostile: 1
@@ -10767,7 +10928,6 @@ attacks:
     type: slow
 can_fly: 1
 color: black
-corpse: {}
 extra_nasty: 1
 follows_stair_users: 1
 glyph: X
@@ -10798,6 +10958,7 @@ sound: wail
 speed: 10
 weight: 1450
 ---
+_corpse: {}
 ac: -4
 alignment: -7
 always_hostile: 1
@@ -10813,7 +10974,6 @@ attacks:
     type: physical
 can_swim: 1
 color: blue
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -10838,6 +10998,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: -5
 alignment: 11
 always_hostile: 1
@@ -10855,7 +11016,6 @@ attacks:
     mode: sting
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -10880,6 +11040,7 @@ speed: 9
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 0
 alignment: -9
 always_hostile: 1
@@ -10895,7 +11056,6 @@ attacks:
     type: physical
 can_fly: 1
 color: gray
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -10919,6 +11079,7 @@ sound: seduce
 speed: 12
 weight: 1450
 ---
+_corpse: {}
 ac: 0
 alignment: -9
 always_hostile: 1
@@ -10934,7 +11095,6 @@ attacks:
     type: physical
 can_fly: 1
 color: gray
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -10958,6 +11118,7 @@ sound: seduce
 speed: 12
 weight: 1450
 ---
+_corpse: {}
 ac: 2
 alignment: 10
 always_hostile: 1
@@ -10966,7 +11127,6 @@ attacks:
     mode: weapon
     type: poison
 color: red
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -10995,6 +11155,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 0
 alignment: 8
 always_hostile: 1
@@ -11009,7 +11170,6 @@ attacks:
     mode: sting
     type: physical
 color: red
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -11034,6 +11194,7 @@ sound: silent
 speed: 12
 weight: 1450
 ---
+_corpse: {}
 ac: -6
 alignment: -12
 always_hostile: 1
@@ -11057,7 +11218,6 @@ attacks:
     mode: claw
     type: physical
 color: red
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -11085,6 +11245,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 0
 alignment: -9
 always_hostile: 1
@@ -11105,7 +11266,6 @@ attacks:
     mode: bite
     type: physical
 color: red
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -11129,6 +11289,7 @@ sound: silent
 speed: 12
 weight: 1450
 ---
+_corpse: {}
 ac: -2
 alignment: -10
 always_hostile: 1
@@ -11143,7 +11304,6 @@ attacks:
     mode: bite
     type: physical
 color: red
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -11168,6 +11328,7 @@ sound: silent
 speed: 6
 weight: 1450
 ---
+_corpse: {}
 ac: -1
 alignment: -9
 always_hostile: 1
@@ -11179,7 +11340,6 @@ attacks:
     mode: sting
     type: poison
 color: gray
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -11204,6 +11364,7 @@ speed: 15
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: -4
 alignment: -12
 always_hostile: 1
@@ -11221,7 +11382,6 @@ attacks:
     mode: sting
     type: cold
 color: white
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -11246,6 +11406,7 @@ sound: silent
 speed: 6
 weight: 1450
 ---
+_corpse: {}
 ac: -1
 alignment: -11
 always_hostile: 1
@@ -11263,7 +11424,6 @@ attacks:
     mode: magic
     type: wizardspell
 color: red
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -11287,6 +11447,7 @@ sound: spell
 speed: 9
 weight: 1450
 ---
+_corpse: {}
 ac: -3
 alignment: -13
 always_hostile: 1
@@ -11301,7 +11462,6 @@ attacks:
     mode: crush
     type: physical
 color: red
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -11326,6 +11486,7 @@ speed: 6
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: -2
 alignment: -14
 always_hostile: 1
@@ -11338,7 +11499,6 @@ attacks:
     type: physical
 can_fly: 1
 color: red
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -11364,6 +11524,7 @@ speed: 5
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: -7
 acidic_corpse: 1
 alignment: -15
@@ -11377,7 +11538,6 @@ attacks:
     type: acid
 can_fly: 1
 color: bright_green
-corpse: {}
 extra_nasty: 1
 follows_stair_users: 1
 gehennom_exclusive: 1
@@ -11412,6 +11572,7 @@ speed: 3
 wants_amulet: 1
 weight: 1500
 ---
+_corpse: {}
 ac: -5
 alignment: -15
 always_hostile: 1
@@ -11430,7 +11591,6 @@ attacks:
     type: magicmissile
 can_fly: 1
 color: magenta
-corpse: {}
 corpse_nutrition: 500
 extra_nasty: 1
 follows_stair_users: 1
@@ -11461,6 +11621,7 @@ wants_amulet: 1
 wants_wargear: 1
 weight: 900
 ---
+_corpse: {}
 ac: -6
 alignment: -20
 always_hostile: 1
@@ -11482,7 +11643,6 @@ attacks:
     type: poison
 can_fly: 1
 color: magenta
-corpse: {}
 corpse_nutrition: 500
 extra_nasty: 1
 follows_stair_users: 1
@@ -11515,6 +11675,7 @@ wants_book: 1
 wants_wargear: 1
 weight: 1500
 ---
+_corpse: {}
 ac: -3
 alignment: 15
 always_hostile: 1
@@ -11530,7 +11691,6 @@ attacks:
     type: poison
 can_fly: 1
 color: magenta
-corpse: {}
 corpse_nutrition: 500
 extra_nasty: 1
 follows_stair_users: 1
@@ -11561,6 +11721,7 @@ speed: 3
 wants_amulet: 1
 weight: 1500
 ---
+_corpse: {}
 ac: -2
 alignment: 15
 always_hostile: 1
@@ -11573,7 +11734,6 @@ attacks:
     type: wizardspell
 can_fly: 1
 color: magenta
-corpse: {}
 corpse_nutrition: 500
 extra_nasty: 1
 follows_stair_users: 1
@@ -11605,6 +11765,7 @@ wants_amulet: 1
 wants_wargear: 1
 weight: 1500
 ---
+_corpse: {}
 ac: -5
 alignment: 20
 always_hostile: 1
@@ -11617,7 +11778,6 @@ attacks:
     type: stun
 can_fly: 1
 color: magenta
-corpse: {}
 corpse_nutrition: 500
 extra_nasty: 1
 follows_stair_users: 1
@@ -11648,6 +11808,7 @@ speed: 9
 wants_amulet: 1
 weight: 1500
 ---
+_corpse: {}
 ac: -7
 alignment: 20
 always_hostile: 1
@@ -11660,7 +11821,6 @@ attacks:
     type: cold
 can_fly: 1
 color: magenta
-corpse: {}
 corpse_nutrition: 500
 extra_nasty: 1
 follows_stair_users: 1
@@ -11694,6 +11854,7 @@ speed: 12
 wants_amulet: 1
 weight: 1500
 ---
+_corpse: {}
 ac: -8
 alignment: -20
 always_hostile: 1
@@ -11712,7 +11873,6 @@ attacks:
     type: sickness
 can_fly: 1
 color: magenta
-corpse: {}
 corpse_nutrition: 500
 extra_nasty: 1
 follows_stair_users: 1
@@ -11743,6 +11903,7 @@ speed: 15
 wants_amulet: 1
 weight: 1500
 ---
+_corpse: {}
 ac: -5
 alignment: 0
 always_hostile: 1
@@ -11755,7 +11916,6 @@ attacks:
     type: Death
 can_fly: 1
 color: magenta
-corpse: {}
 corpse_nutrition: 1
 extra_nasty: 1
 follows_stair_users: 1
@@ -11786,6 +11946,7 @@ sound: rider
 speed: 12
 weight: 1450
 ---
+_corpse: {}
 ac: -5
 alignment: 0
 always_hostile: 1
@@ -11798,7 +11959,6 @@ attacks:
     type: Pestilence
 can_fly: 1
 color: magenta
-corpse: {}
 corpse_nutrition: 1
 extra_nasty: 1
 follows_stair_users: 1
@@ -11829,6 +11989,7 @@ sound: rider
 speed: 12
 weight: 1450
 ---
+_corpse: {}
 ac: -5
 alignment: 0
 always_hostile: 1
@@ -11841,7 +12002,6 @@ attacks:
     type: Famine
 can_fly: 1
 color: magenta
-corpse: {}
 corpse_nutrition: 1
 extra_nasty: 1
 follows_stair_users: 1
@@ -11872,6 +12032,7 @@ sound: rider
 speed: 12
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 0
 always_peaceful: 1
@@ -11879,7 +12040,6 @@ attacks: []
 can_fly: 1
 can_swim: 1
 color: bright_blue
-corpse: {}
 corpse_nutrition: 300
 follows_stair_users: 1
 glyph: '&'
@@ -11908,6 +12068,7 @@ sound: silent
 speed: 24
 weight: 600
 ---
+_corpse: {}
 ac: 4
 alignment: 0
 attacks:
@@ -11916,7 +12077,6 @@ attacks:
     type: physical
 can_fly: 1
 color: yellow
-corpse: {}
 corpse_nutrition: 400
 follows_stair_users: 1
 glyph: '&'
@@ -11938,6 +12098,7 @@ speed: 12
 wants_wargear: 1
 weight: 1500
 ---
+_corpse: {}
 ac: 4
 alignment: -5
 attacks:
@@ -11948,7 +12109,6 @@ attacks:
     mode: weapon
     type: physical
 color: gray
-corpse: {}
 corpse_nutrition: 400
 follows_stair_users: 1
 gehennom_exclusive: 1
@@ -11971,6 +12131,8 @@ speed: 12
 wants_wargear: 1
 weight: 1500
 ---
+_corpse:
+  poison: 1
 ac: 6
 alignment: 0
 always_hostile: 1
@@ -11981,8 +12143,6 @@ attacks:
 can_swim: 1
 cannot_pickup_items: 1
 color: blue
-corpse:
-  poison: 1
 corpse_nutrition: 20
 glyph: ;
 hitdice: 3
@@ -12001,6 +12161,7 @@ sound: silent
 speed: 3
 weight: 80
 ---
+_corpse: {}
 ac: 4
 alignment: 0
 always_hostile: 1
@@ -12011,7 +12172,6 @@ attacks:
 can_swim: 1
 cannot_pickup_items: 1
 color: red
-corpse: {}
 corpse_nutrition: 30
 glyph: ;
 hitdice: 5
@@ -12032,6 +12192,7 @@ sound: silent
 speed: 12
 weight: 60
 ---
+_corpse: {}
 ac: 2
 alignment: 0
 always_hostile: 1
@@ -12042,7 +12203,6 @@ attacks:
 can_swim: 1
 cannot_pickup_items: 1
 color: gray
-corpse: {}
 corpse_nutrition: 350
 glyph: ;
 has_thick_hide: 1
@@ -12063,6 +12223,7 @@ sound: silent
 speed: 12
 weight: 500
 ---
+_corpse: {}
 ac: -1
 alignment: 0
 always_hostile: 1
@@ -12076,7 +12237,6 @@ attacks:
 can_swim: 1
 cannot_pickup_items: 1
 color: cyan
-corpse: {}
 corpse_nutrition: 250
 glyph: ;
 hitdice: 5
@@ -12097,6 +12257,8 @@ sound: silent
 speed: 9
 weight: 200
 ---
+_corpse:
+  elec: 1
 ac: -3
 alignment: 0
 always_hostile: 1
@@ -12110,8 +12272,6 @@ attacks:
 can_swim: 1
 cannot_pickup_items: 1
 color: bright_blue
-corpse:
-  elec: 1
 corpse_nutrition: 250
 glyph: ;
 hitdice: 7
@@ -12133,6 +12293,7 @@ sound: silent
 speed: 10
 weight: 200
 ---
+_corpse: {}
 ac: 6
 alignment: -3
 always_hostile: 1
@@ -12151,7 +12312,6 @@ attacks:
     type: physical
 can_swim: 1
 color: red
-corpse: {}
 corpse_nutrition: 1000
 glyph: ;
 hitdice: 20
@@ -12172,6 +12332,7 @@ sound: silent
 speed: 3
 weight: 1800
 ---
+_corpse: {}
 ac: 8
 alignment: 0
 always_hostile: 1
@@ -12181,7 +12342,6 @@ attacks:
     type: physical
 can_swim: 1
 color: yellow
-corpse: {}
 corpse_nutrition: 20
 glyph: ':'
 hitdice: 0
@@ -12199,6 +12359,7 @@ sound: silent
 speed: 6
 weight: 10
 ---
+_corpse: {}
 ac: 8
 alignment: 0
 always_hostile: 1
@@ -12207,7 +12368,6 @@ attacks:
     mode: bite
     type: physical
 color: green
-corpse: {}
 corpse_nutrition: 20
 glyph: ':'
 hitdice: 1
@@ -12224,6 +12384,7 @@ sound: sqeek
 speed: 6
 weight: 10
 ---
+_corpse: {}
 ac: 7
 alignment: 0
 always_hostile: 1
@@ -12232,7 +12393,6 @@ attacks:
     mode: bite
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 30
 glyph: ':'
 hitdice: 2
@@ -12249,6 +12409,7 @@ sound: silent
 speed: 6
 weight: 30
 ---
+_corpse: {}
 ac: 7
 alignment: 0
 always_hostile: 1
@@ -12258,7 +12419,6 @@ attacks:
     type: physical
 can_swim: 1
 color: brown
-corpse: {}
 corpse_nutrition: 200
 glyph: ':'
 hitdice: 3
@@ -12275,6 +12435,8 @@ sound: silent
 speed: 6
 weight: 200
 ---
+_corpse:
+  stone: 1
 ac: 6
 alignment: 0
 always_hostile: 1
@@ -12283,8 +12445,6 @@ attacks:
     mode: bite
     type: physical
 color: green
-corpse:
-  stone: 1
 corpse_nutrition: 40
 glyph: ':'
 hitdice: 5
@@ -12302,6 +12462,7 @@ sound: silent
 speed: 6
 weight: 10
 ---
+_corpse: {}
 ac: 6
 alignment: 0
 always_hostile: 1
@@ -12310,7 +12471,6 @@ attacks:
     mode: bite
     type: physical
 color: brown
-corpse: {}
 corpse_nutrition: 100
 glyph: ':'
 hitdice: 6
@@ -12328,6 +12488,7 @@ sound: silent
 speed: 5
 weight: 100
 ---
+_corpse: {}
 ac: 5
 alignment: 0
 always_hostile: 1
@@ -12340,7 +12501,6 @@ attacks:
     type: physical
 can_swim: 1
 color: brown
-corpse: {}
 corpse_nutrition: 400
 glyph: ':'
 has_thick_hide: 1
@@ -12361,6 +12521,8 @@ sound: silent
 speed: 9
 weight: 1450
 ---
+_corpse:
+  fire: 1
 ac: -1
 alignment: -9
 always_hostile: 1
@@ -12378,8 +12540,6 @@ attacks:
     mode: crush
     type: fire
 color: orange
-corpse:
-  fire: 1
 corpse_nutrition: 400
 follows_stair_users: 1
 gehennom_exclusive: 1
@@ -12403,6 +12563,7 @@ wants_magic_items: 1
 wants_wargear: 1
 weight: 1500
 ---
+_corpse: {}
 ac: 10
 alignment: 3
 attacks:
@@ -12413,7 +12574,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 10
@@ -12435,6 +12595,7 @@ tunnels_with_pick: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 0
 attacks:
@@ -12445,7 +12606,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 10
@@ -12467,6 +12627,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 1
 attacks:
@@ -12474,7 +12635,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 10
@@ -12496,6 +12656,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 1
 attacks:
@@ -12503,7 +12664,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 10
@@ -12525,6 +12685,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 0
 attacks:
@@ -12532,7 +12693,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 10
@@ -12554,6 +12714,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 3
 attacks:
@@ -12564,7 +12725,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 10
@@ -12585,6 +12745,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 0
 attacks:
@@ -12595,7 +12756,6 @@ attacks:
     mode: kick
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 10
@@ -12616,6 +12776,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 0
 attacks:
@@ -12623,7 +12784,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 10
@@ -12645,6 +12805,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 0
 attacks:
@@ -12652,7 +12813,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 10
@@ -12674,6 +12834,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: -3
 attacks:
@@ -12681,7 +12842,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 10
@@ -12702,6 +12862,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: -3
 attacks:
@@ -12712,7 +12873,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 10
@@ -12735,6 +12895,7 @@ wants_gold: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 3
 attacks:
@@ -12745,7 +12906,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 10
@@ -12766,6 +12926,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 0
 attacks:
@@ -12776,7 +12937,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 10
@@ -12797,6 +12957,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: -1
 attacks:
@@ -12807,7 +12968,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 10
@@ -12830,6 +12990,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 0
 attacks:
@@ -12837,7 +12998,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 10
@@ -12859,6 +13019,7 @@ wants_magic_items: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 0
 alignment: 20
 always_peaceful: 1
@@ -12867,7 +13028,6 @@ attacks:
     mode: weapon
     type: physical
 color: magenta
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 has_proper_name: 1
@@ -12894,6 +13054,7 @@ wants_magic_items: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 0
 alignment: 0
 always_peaceful: 1
@@ -12902,7 +13063,6 @@ attacks:
     mode: weapon
     type: physical
 color: magenta
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 has_proper_name: 1
@@ -12929,6 +13089,7 @@ wants_magic_items: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 0
 alignment: 20
 always_peaceful: 1
@@ -12937,7 +13098,6 @@ attacks:
     mode: weapon
     type: physical
 color: magenta
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 has_proper_name: 1
@@ -12963,6 +13123,7 @@ wants_magic_items: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 0
 alignment: 0
 always_peaceful: 1
@@ -12971,7 +13132,6 @@ attacks:
     mode: weapon
     type: physical
 color: magenta
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 has_proper_name: 1
@@ -12998,6 +13158,7 @@ wants_magic_items: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 0
 alignment: 20
 always_peaceful: 1
@@ -13009,7 +13170,6 @@ attacks:
     mode: weapon
     type: physical
 color: magenta
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 has_proper_name: 1
@@ -13035,6 +13195,7 @@ wants_magic_items: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 0
 alignment: 0
 always_peaceful: 1
@@ -13052,7 +13213,6 @@ attacks:
     mode: magic
     type: clericalspell
 color: black
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 glyph: '@'
@@ -13080,6 +13240,7 @@ speed: 12
 wants_magic_items: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 7
 alignment: 0
 always_peaceful: 1
@@ -13097,7 +13258,6 @@ attacks:
     mode: magic
     type: clericalspell
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 25
@@ -13126,6 +13286,7 @@ wants_magic_items: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 0
 alignment: 0
 always_peaceful: 1
@@ -13135,7 +13296,6 @@ attacks:
     type: physical
 can_swim: 1
 color: magenta
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 has_infravision: 1
@@ -13164,6 +13324,7 @@ wants_magic_items: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 0
 alignment: -20
 always_peaceful: 1
@@ -13178,7 +13339,6 @@ attacks:
     mode: claw
     type: stealamulet
 color: magenta
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 20
@@ -13206,6 +13366,7 @@ wants_magic_items: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 0
 alignment: 20
 always_peaceful: 1
@@ -13217,7 +13378,6 @@ attacks:
     mode: weapon
     type: physical
 color: magenta
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 has_proper_name: 1
@@ -13243,6 +13403,7 @@ wants_magic_items: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 0
 always_peaceful: 1
@@ -13254,7 +13415,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 has_proper_name: 1
@@ -13280,6 +13440,7 @@ wants_magic_items: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 0
 alignment: 0
 always_peaceful: 1
@@ -13291,7 +13452,6 @@ attacks:
     mode: weapon
     type: physical
 color: magenta
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 20
@@ -13317,6 +13477,7 @@ wants_magic_items: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 0
 alignment: 0
 always_peaceful: 1
@@ -13328,7 +13489,6 @@ attacks:
     mode: magic
     type: wizardspell
 color: green
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 has_proper_name: 1
@@ -13354,6 +13514,7 @@ wants_magic_items: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: -2
 alignment: -14
 always_hostile: 1
@@ -13372,7 +13533,6 @@ attacks:
     type: stealamulet
 can_fly: 1
 color: red
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -13402,6 +13562,7 @@ wants_quest_artifact: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 0
 alignment: -14
 always_hostile: 1
@@ -13419,7 +13580,6 @@ attacks:
     mode: claw
     type: stealamulet
 color: magenta
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -13451,6 +13611,14 @@ wants_quest_artifact: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse:
+  cold: 1
+  disint: 1
+  elec: 1
+  fire: 1
+  poison: 1
+  sleep: 1
+  stone: 1
 ac: 0
 alignment: -14
 always_hostile: 1
@@ -13474,14 +13642,6 @@ attacks:
     mode: sting
     type: physical
 color: magenta
-corpse:
-  cold: 1
-  disint: 1
-  elec: 1
-  fire: 1
-  poison: 1
-  sleep: 1
-  stone: 1
 corpse_nutrition: 1700
 extra_nasty: 1
 follows_stair_users: 1
@@ -13519,6 +13679,7 @@ wants_magic_items: 1
 wants_quest_artifact: 1
 weight: 4500
 ---
+_corpse: {}
 ac: 0
 alignment: -15
 always_hostile: 1
@@ -13533,7 +13694,6 @@ attacks:
     mode: claw
     type: stealamulet
 color: gray
-corpse: {}
 corpse_nutrition: 700
 extra_nasty: 1
 follows_stair_users: 1
@@ -13564,6 +13724,8 @@ wants_quest_artifact: 1
 wants_wargear: 1
 weight: 1900
 ---
+_corpse:
+  fire: 1
 ac: -1
 alignment: -14
 always_hostile: 1
@@ -13585,8 +13747,6 @@ attacks:
     type: stealamulet
 can_fly: 1
 color: red
-corpse:
-  fire: 1
 corpse_nutrition: 1600
 extra_nasty: 1
 follows_stair_users: 1
@@ -13617,6 +13777,8 @@ wants_magic_items: 1
 wants_quest_artifact: 1
 weight: 4500
 ---
+_corpse:
+  poison: 1
 ac: -10
 alignment: -20
 always_hostile: 1
@@ -13634,8 +13796,6 @@ attacks:
     mode: claw
     type: stealamulet
 color: magenta
-corpse:
-  poison: 1
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -13665,6 +13825,7 @@ wants_quest_artifact: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: -2
 alignment: -127
 always_hostile: 1
@@ -13683,7 +13844,6 @@ attacks:
     type: stealamulet
 can_fly: 1
 color: red
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -13714,6 +13874,8 @@ wants_quest_artifact: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse:
+  poison: 1
 ac: 10
 alignment: -15
 always_hostile: 1
@@ -13728,8 +13890,6 @@ attacks:
     mode: sting
     type: sickness
 color: magenta
-corpse:
-  poison: 1
 corpse_nutrition: 350
 extra_nasty: 1
 follows_stair_users: 1
@@ -13759,6 +13919,7 @@ wants_quest_artifact: 1
 wants_wargear: 1
 weight: 750
 ---
+_corpse: {}
 ac: 0
 alignment: 18
 always_hostile: 1
@@ -13773,7 +13934,6 @@ attacks:
     mode: claw
     type: stealamulet
 color: magenta
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -13801,6 +13961,7 @@ wants_quest_artifact: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 0
 alignment: -13
 always_hostile: 1
@@ -13815,7 +13976,6 @@ attacks:
     mode: claw
     type: stealamulet
 color: magenta
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -13846,6 +14006,8 @@ wants_quest_artifact: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse:
+  fire: 1
 ac: 2
 alignment: 12
 always_hostile: 1
@@ -13860,8 +14022,6 @@ attacks:
     mode: claw
     type: stealamulet
 color: magenta
-corpse:
-  fire: 1
 corpse_nutrition: 850
 extra_nasty: 1
 follows_stair_users: 1
@@ -13894,6 +14054,7 @@ wants_quest_artifact: 1
 wants_wargear: 1
 weight: 2250
 ---
+_corpse: {}
 ac: 0
 alignment: -10
 always_hostile: 1
@@ -13911,7 +14072,6 @@ attacks:
     mode: magic
     type: wizardspell
 color: black
-corpse: {}
 corpse_nutrition: 400
 extra_nasty: 1
 follows_stair_users: 1
@@ -13940,6 +14100,7 @@ wants_quest_artifact: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 3
 always_peaceful: 1
@@ -13948,7 +14109,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 5
@@ -13970,6 +14130,7 @@ tunnels_with_pick: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 0
 always_peaceful: 1
@@ -13978,7 +14139,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 5
@@ -14000,6 +14160,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 1
 always_peaceful: 1
@@ -14008,7 +14169,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 5
@@ -14029,6 +14189,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 3
 always_peaceful: 1
@@ -14037,7 +14198,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 5
@@ -14059,6 +14219,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 3
 always_peaceful: 1
@@ -14070,7 +14231,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 5
@@ -14091,6 +14251,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 0
 always_peaceful: 1
@@ -14105,7 +14266,6 @@ attacks:
     mode: magic
     type: clericalspell
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 5
@@ -14125,6 +14285,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 0
 always_peaceful: 1
@@ -14136,7 +14297,6 @@ attacks:
     mode: magic
     type: clericalspell
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 5
@@ -14157,6 +14317,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: -7
 always_peaceful: 1
@@ -14165,7 +14326,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 has_infravision: 1
@@ -14188,6 +14348,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: -3
 always_peaceful: 1
@@ -14199,7 +14360,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 5
@@ -14221,6 +14381,7 @@ wants_gold: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 3
 always_hostile: 1
@@ -14232,7 +14393,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 5
@@ -14253,6 +14413,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 3
 always_peaceful: 1
@@ -14264,7 +14425,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 5
@@ -14285,6 +14445,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 0
 always_peaceful: 1
@@ -14296,7 +14457,6 @@ attacks:
     mode: magic
     type: wizardspell
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 5
@@ -14318,6 +14478,7 @@ wants_magic_items: 1
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: -1
 always_peaceful: 1
@@ -14329,7 +14490,6 @@ attacks:
     mode: weapon
     type: physical
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 5
@@ -14351,6 +14511,7 @@ speed: 12
 wants_wargear: 1
 weight: 1450
 ---
+_corpse: {}
 ac: 10
 alignment: 0
 always_peaceful: 1
@@ -14362,7 +14523,6 @@ attacks:
     mode: magic
     type: wizardspell
 color: white
-corpse: {}
 corpse_nutrition: 400
 glyph: '@'
 hitdice: 5

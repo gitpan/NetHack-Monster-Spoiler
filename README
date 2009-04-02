@@ -6,6 +6,7 @@ pxlth are encoded, and most of the compound accessors from mondata.c
 and mondata.h.
 
 MAJOR CHANGES
+    0.02: greatly improved corpse handling
     0.01: first version
 
 INSTALLATION

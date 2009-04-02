@@ -1,5 +1,9 @@
 Revision history for NetHack-Monster-Spoiler
 
+0.02    Thu Apr  2 15:12:09 2009
+        Revert the misguided attempt to make accessors attributes (doy)
+        Sane handling of corpse effects (doy)
+
 0.01    Sat Nov 29 01:59:46 2008
         First version, released on an unsuspecting world.
 
