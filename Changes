@@ -1,5 +1,8 @@
 Revision history for NetHack-Monster-Spoiler
 
+0.03    Sat Jun 13 22:04:27 2009
+        Bugfix, explicitly depend on a recent YAML
+
 0.02    Thu Apr  2 15:12:09 2009
         Revert the misguided attempt to make accessors attributes (doy)
         Sane handling of corpse effects (doy)
