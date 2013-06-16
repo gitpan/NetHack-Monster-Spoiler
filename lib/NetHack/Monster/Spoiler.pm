@@ -5,7 +5,7 @@ use YAML::Any qw(Load);
 use MooseX::ClassAttribute;
 use Moose::Util::TypeConstraints;
 
-our $VERSION = '0.02';
+our $VERSION = '0.05';
 
 =head1 NAME
 
