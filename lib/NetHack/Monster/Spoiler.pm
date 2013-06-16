@@ -5,7 +5,7 @@ use YAML::Any qw(Load);
 use MooseX::ClassAttribute;
 use Moose::Util::TypeConstraints;
 
-our $VERSION = '0.03';
+our $VERSION = '0.02';
 
 =head1 NAME
 
@@ -54,7 +54,7 @@ class_has list => (
     lazy       => 1,
     auto_deref => 1,
     default    => sub {
-        my $class = shift->name;
+        my $class = shift;
 
         [ map { $class->new(%$_) } $class->_list ];
     },

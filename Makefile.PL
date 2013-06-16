@@ -3,7 +3,7 @@ use inc::Module::Install;
 name     'NetHack-Monster-Spoiler';
 all_from 'lib/NetHack/Monster/Spoiler.pm';
 
-requires       'YAML' => 0.67;
+requires       'YAML';
 requires       'Moose';
 requires       'MooseX::ClassAttribute';
 requires       'MooseX::Role::Matcher';

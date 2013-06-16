@@ -1,11 +1,15 @@
 ---
 abstract: 'information on a type of monster'
 author:
-  - 'Stefan O''Rear, C<< <stefanor@cox.net> >>'
+  - "Stefan O'Rear, C<< <stefanor@cox.net> >>"
 build_requires:
+  ExtUtils::MakeMaker: 6.36
   Test::More: 0
+configure_requires:
+  ExtUtils::MakeMaker: 6.36
 distribution_type: module
-generated_by: 'Module::Install version 0.77'
+dynamic_config: 1
+generated_by: 'Module::Install version 1.06'
 license: perl
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html
@@ -19,7 +23,7 @@ requires:
   Moose: 0
   MooseX::ClassAttribute: 0
   MooseX::Role::Matcher: 0
-  YAML: 0.67
+  YAML: 0
 resources:
   license: http://dev.perl.org/licenses/
-version: 0.03
+version: 0.02

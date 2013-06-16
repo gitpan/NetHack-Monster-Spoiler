@@ -1,4 +1,4 @@
-NetHack::Monster::Spoiler 0.03
+NetHack::Monster::Spoiler 0.01
 
 NetHack::Monster::Spoiler is a set of machine-readable monster
 spoilers for NetHack, intended for use in bots.  All fields except
@@ -6,8 +6,6 @@ pxlth are encoded, and most of the compound accessors from mondata.c
 and mondata.h.
 
 MAJOR CHANGES
-    0.03: fixed dependancies
-    0.02: greatly improved corpse handling
     0.01: first version
 
 INSTALLATION
